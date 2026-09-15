@@ -536,16 +536,27 @@ render();
   }
   DB=db;
   db.collection("goals").onSnapshot(function(snap){
-    S.goals=snap.docs.map(function(d){var o=d.data()||{};o.id=d.id;o.adj=o.adj||[];return o;});
+    S.goals=snap.docs.map(function(d){
+      var src=d.data()||{}, o={};
+      Object.keys(src).forEach(function(f){o[f]=src[f];});
+      o.id=d.id;
+      o.adj=(src.adj||[]).map(function(a){
+        var c={}; Object.keys(a||{}).forEach(function(f){c[f]=a[f];}); return c;});
+      return o;
+    });
     ready=true; render();
-  },function(e){note("목표를 불러오지 못했습니다 ("+e.code+").");});
+  },function(e){note("목표를 불러오지 못했습니다 ("+e.code+"). 새로고침해 보세요.");});
   db.collection("logs").onSnapshot(function(snap){
     var next={};
     snap.docs.forEach(function(d){
       var o=d.data()||{}, days=o.days||{}, m=o.month, gid=o.goalId;
       if(!gid||!m) return;
       var e=next[gid]||(next[gid]={});
-      Object.keys(days).forEach(function(n){e[m+"-"+String(n).padStart(2,"0")]=days[n];});
+      Object.keys(days).forEach(function(n){
+        var src=days[n]||{}, c={};
+        Object.keys(src).forEach(function(f){c[f]=src[f];});
+        e[m+"-"+String(n).padStart(2,"0")]=c;
+      });
     });
     S.entries=next; render();
   },function(e){note("기록을 불러오지 못했습니다 ("+e.code+").");});
