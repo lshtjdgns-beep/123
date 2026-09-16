@@ -80,9 +80,13 @@ button{font:inherit;color:inherit;cursor:pointer}
 .goal-head h3{font-size:19px}
 .goal-head .meta{font-family:var(--mono);font-size:12px;color:var(--ink3);letter-spacing:.03em}
 .goal-head .spacer{flex:1}
-.iconbtn{background:none;border:none;padding:4px 6px;color:var(--ink3);font-size:12px;
-  font-family:var(--mono);letter-spacing:.04em}
-.iconbtn:hover{color:var(--over)}
+.iconbtn{background:none;border:1px solid var(--line2);padding:6px 12px;min-height:34px;
+  color:var(--ink3);font-size:12px;font-family:var(--mono);letter-spacing:.04em}
+.iconbtn:hover{color:var(--over);border-color:var(--over)}
+.iconbtn.danger{background:var(--over);border-color:var(--over);color:var(--surface)}
+.iconbtn.danger:hover{color:var(--surface)}
+.confirm{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.confirm .q{font-family:var(--mono);font-size:11.5px;color:var(--over);letter-spacing:.03em}
 
 .body{display:grid;grid-template-columns:minmax(0,272px) minmax(0,1fr);gap:26px 32px;margin-top:18px;align-items:start}
 @media (max-width:640px){.body{grid-template-columns:1fr}}
@@ -221,7 +225,7 @@ footer{margin-top:52px;border-top:1px solid var(--line);padding-top:14px;
 (function(){
 "use strict";
 var DAY=864e5, LS="ar-lab-v1";
-var S={goals:[],entries:{}}, DB=null, ready=false, localMode=false;
+var S={goals:[],entries:{}}, DB=null, ready=false, localMode=false, pendingDel=null;
 
 /* ── dates ─────────────────────────────────── */
 function key(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
@@ -340,6 +344,7 @@ function saveGoal(g){
   saveLocal(); return Promise.resolve();
 }
 function removeGoal(g){
+  pendingDel=null;
   S.goals=S.goals.filter(function(x){return x.id!==g.id;});
   var months=Object.keys(S.entries[g.id]||{}).map(function(k){return k.slice(0,7);});
   delete S.entries[g.id]; render();
@@ -433,7 +438,11 @@ function goalView(g,inert){
   var h='<article class="goal"><div class="goal-head"><h3>'+esc(g.name)+'</h3>'+
     '<span class="meta">'+g.size+esc(g.unit)+' · '+cadence(g.perWeek)+' · 목표 R '+g.target+'%</span>'+
     '<span class="spacer"></span>'+
-    (inert?"":'<button class="iconbtn" data-del="'+g.id+'" title="이 목표 삭제">삭제</button>')+
+    (inert?"":(pendingDel===g.id
+      ? '<span class="confirm"><span class="q">기록까지 모두 지웁니다</span>'+
+        '<button class="iconbtn danger" data-delyes="'+g.id+'">지우기</button>'+
+        '<button class="iconbtn" data-delno="1">취소</button></span>'
+      : '<button class="iconbtn" data-del="'+g.id+'" title="이 목표 삭제">삭제</button>'))+
     '</div><div class="body">'+calendar(g)+'<div><div class="metrics">'+
     '<div class="metric"><div class="k">R · 7일</div><div class="v">'+r7.pct+'<small>%</small></div>'+
       '<div class="sub">'+r7.done+"/"+r7.due+'일</div></div>'+
@@ -509,8 +518,9 @@ function byId(id){for(var i=0;i<S.goals.length;i++) if(S.goals[i].id===id) retur
 document.addEventListener("click",function(ev){
   var el=ev.target.closest("button"); if(!el) return;
   if(el.dataset.apply){var g=byId(el.dataset.apply); if(g) applyMove(g,diagnose(g)); return;}
-  if(el.dataset.del){var g2=byId(el.dataset.del);
-    if(g2&&confirm('"'+g2.name+'" 목표와 기록을 모두 지울까요?')) removeGoal(g2); return;}
+  if(el.dataset.del){pendingDel=el.dataset.del; render(); return;}
+  if(el.dataset.delno){pendingDel=null; render(); return;}
+  if(el.dataset.delyes){var g2=byId(el.dataset.delyes); if(g2) removeGoal(g2); return;}
   if(el.dataset.g&&el.dataset.k){var g3=byId(el.dataset.g); if(g3) toggle(g3,el.dataset.k);}
 });
 document.getElementById("add").addEventListener("submit",function(ev){
