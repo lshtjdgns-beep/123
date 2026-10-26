@@ -1,26 +1,66 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --background: #f6f7f9;
+  --surface: #ffffff;
+  --subtle: #eef0f3;
+  --line: #dfe3e8;
+  --foreground: #1d2329;
+  --muted: #5d6874;
+  --brand: #03a94d;
+  --brand-strong: #028a3f;
+  --danger: #d23c3c;
+  --warn: #b7791f;
+  --highlight: #fff593;
+  --table-row: #f7f7f7;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #121417;
+    --surface: #1b1e22;
+    --subtle: #252a30;
+    --line: #333a42;
+    --foreground: #e8ebee;
+    --muted: #9aa4ae;
+    --brand: #2bc56d;
+    --brand-strong: #20a85a;
+    --danger: #ef6b6b;
+    --warn: #e0a84a;
   }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-subtle: var(--subtle);
+  --color-line: var(--line);
+  --color-fg: var(--foreground);
+  --color-muted: var(--muted);
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-danger: var(--danger);
+  --color-warn: var(--warn);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: "Pretendard", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+}
+
+.card {
+  @apply rounded-xl border border-line bg-surface p-4 shadow-sm;
+}
+.btn {
+  @apply inline-flex items-center justify-center gap-1 rounded-lg border border-line bg-surface px-3 py-2 text-sm font-medium hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-50;
+}
+.btn-primary {
+  @apply inline-flex items-center justify-center gap-1 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-strong disabled:cursor-not-allowed disabled:opacity-50;
+}
+.input {
+  @apply w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm outline-none focus:border-brand;
+}
+.label {
+  @apply mb-1 block text-xs font-semibold text-muted;
 }
