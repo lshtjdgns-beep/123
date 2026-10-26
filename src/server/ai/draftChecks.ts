@@ -260,13 +260,16 @@ export function splitParagraphsBySentence(blocks: ContentBlock[]): ContentBlock[
   for (const b of blocks) {
     if (b.type !== "paragraph") { out.push(b); continue; }
     const saved: string[] = [];
+    // 강조 구간 안쪽이 문장부호로 끝나면("**맛있어요.**") 자리표시자 뒤에 \u0001을 붙여
+    // 그 구간 뒤에서도 문장을 나눌 수 있게 한다.
     const masked = b.text.replace(MARKED_SPAN, (m) => {
       saved.push(m);
-      return `\u0000${saved.length - 1}\u0000`;
+      const endsSentence = /([.!?。]|[ㅎㅋㅠ]{2,}|~)(\*\*|__|==)$/.test(m);
+      return `\u0000${saved.length - 1}\u0000${endsSentence ? "\u0001" : ""}`;
     });
     const pieces = masked
-      .split(/(?<=[.!?。]|[ㅎㅋㅠ]{2,})\s+|(?<=~)\s+(?!\d)/)
-      .map((p) => p.replace(/\u0000(\d+)\u0000/g, (_, i) => saved[Number(i)]).trim())
+      .split(/(?<=[.!?。\u0001]|[ㅎㅋㅠ]{2,})\s+|(?<=~)\s+(?!\d)/)
+      .map((p) => p.replace(/\u0001/g, "").replace(/\u0000(\d+)\u0000/g, (_, i) => saved[Number(i)]).trim())
       .filter(Boolean);
     for (const p of pieces) out.push({ type: "paragraph", text: p });
   }

@@ -1,0 +1,4 @@
+# cmd.exe는 LF 줄바꿈이면 파싱을 깨뜨린다 — 체크아웃 시 항상 CRLF
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
