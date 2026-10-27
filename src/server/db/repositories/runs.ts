@@ -1,5 +1,6 @@
 import "server-only";
 import { nanoid } from "nanoid";
+import type { SQLInputValue } from "node:sqlite";
 import { getDb } from "../client";
 
 export type RunStatus = "pending" | "collecting" | "generating" | "sourcing_images" | "ready" | "failed";
@@ -26,7 +27,7 @@ export function getRun(id: string): RunRow | undefined {
 
 export function updateRun(id: string, patch: { status?: RunStatus; detail?: string | null; error?: string | null; finished?: boolean }) {
   const sets: string[] = [];
-  const values: unknown[] = [];
+  const values: SQLInputValue[] = [];
   if (patch.status !== undefined) { sets.push("status = ?"); values.push(patch.status); }
   if (patch.detail !== undefined) { sets.push("detail = ?"); values.push(patch.detail); }
   if (patch.error !== undefined) { sets.push("error = ?"); values.push(patch.error); }

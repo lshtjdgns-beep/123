@@ -8,6 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import assert from "node:assert/strict";
+import { DatabaseSync } from "node:sqlite";
 import { wrapIntoCenteredLines, visibleLength, MAX_LINE } from "../src/lib/centeredLineWrap";
 import { blocksToHtml, htmlToBlocks, plainTextToBlocks, blocksToPlainText, type ContentBlock } from "../src/lib/textToHtml";
 import {
@@ -103,9 +104,7 @@ test("줄바꿈: 무작위 문단 5000개 불변식", () => {
 test("줄바꿈: 저장된 초안 문단 전체 불변식(있으면)", () => {
   const dbPath = path.join(process.cwd(), "data", "app.db");
   if (!fs.existsSync(dbPath)) return;
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const Database = require("better-sqlite3");
-  const db = new Database(dbPath, { readonly: true });
+  const db = new DatabaseSync(dbPath, { readOnly: true });
   const rows = db.prepare("SELECT body_html FROM drafts").all() as { body_html: string }[];
   let paragraphs = 0;
   for (const r of rows) {

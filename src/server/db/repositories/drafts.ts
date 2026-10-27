@@ -1,5 +1,6 @@
 import "server-only";
 import { nanoid } from "nanoid";
+import type { SQLInputValue } from "node:sqlite";
 import { getDb } from "../client";
 import type { DraftReport } from "@/lib/reportTypes";
 
@@ -97,7 +98,7 @@ export function updateDraft(id: string, patch: Partial<{
   imageIds: string[]; report: DraftReport | null;
 }>) {
   const sets: string[] = [];
-  const values: unknown[] = [];
+  const values: SQLInputValue[] = [];
   if (patch.title !== undefined) { sets.push("title = ?"); values.push(patch.title); }
   if (patch.bodyHtml !== undefined) { sets.push("body_html = ?"); values.push(patch.bodyHtml); }
   if (patch.status !== undefined) { sets.push("status = ?"); values.push(patch.status); }

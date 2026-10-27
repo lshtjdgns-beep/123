@@ -21,13 +21,18 @@ export function saveSources(keyword: string, items: NewSource[]): string[] {
   const stmt = db.prepare(`INSERT INTO sources (id, keyword, type, title, url, excerpt, published_at, raw_json_path)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
   const ids: string[] = [];
-  db.transaction(() => {
+  db.exec("BEGIN");
+  try {
     for (const it of items) {
       const id = nanoid(12);
       stmt.run(id, keyword, it.type, it.title, it.url, it.excerpt ?? null, it.publishedAt ?? null, it.rawJsonPath ?? null);
       ids.push(id);
     }
-  })();
+    db.exec("COMMIT");
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
   return ids;
 }
 

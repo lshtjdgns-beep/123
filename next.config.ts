@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
   // 본인 Tailscale IP를 알면 "100.x.y.z" 하나로 좁혀도 된다.
   allowedDevOrigins: ["192.168.*.*", "10.*.*.*", "100.*.*.*"],
   // 네이티브/서브프로세스 패키지는 번들하지 않는다.
-  serverExternalPackages: ["better-sqlite3", "sharp", "playwright", "@anthropic-ai/claude-agent-sdk"],
+  serverExternalPackages: ["sharp", "playwright", "@anthropic-ai/claude-agent-sdk"],
 };
 
 export default nextConfig;

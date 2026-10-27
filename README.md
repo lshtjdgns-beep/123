@@ -7,7 +7,9 @@
 
 ## 준비 (Windows)
 
-1. Node.js 22+, Microsoft Edge(Playwright가 시스템 Edge를 사용 — `npx playwright install` 불필요)
+1. Node.js **22.13 이상**(24 LTS 권장), Microsoft Edge(Playwright가 시스템 Edge를 사용 — `npx playwright install` 불필요)
+   데이터베이스는 Node 내장 SQLite(`node:sqlite`)를 써서 **Python이나 Visual Studio 빌드 도구가 필요 없습니다.**
+   PowerShell에서 `npm`이 "스크립트를 실행할 수 없으므로…"로 막히면 한 번만 실행: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
 2. Claude 구독 로그인(토큰 과금 아님):
    ```
    npx @anthropic-ai/claude-code login

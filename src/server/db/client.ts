@@ -1,10 +1,16 @@
 import "server-only";
 import fs from "node:fs";
 import path from "node:path";
-import Database from "better-sqlite3";
+import type { DatabaseSync } from "node:sqlite";
 import { DATA_DIR, DB_PATH } from "@/lib/paths";
 
-type DB = Database.Database;
+// Node 내장 SQLite(node:sqlite, Node 22.13+)를 쓴다. 예전에는 better-sqlite3를 썼는데,
+// Windows + 최신 Node에서 미리 빌드된 바이너리를 못 받으면 소스 빌드(Python + VS C++ 빌드
+// 도구)를 요구해 npm install 자체가 실패했다(사용자 PC에서 실제로 발생). 내장 모듈은 설치가 없다.
+// process.getBuiltinModule로 불러오는 이유: 번들러가 비교적 새 내장 모듈인 "node:sqlite"를
+// 외부 모듈로 인식하지 못하고 번들하려다 실패하는 경우를 피하기 위해.
+type DB = DatabaseSync;
+type SqliteModule = typeof import("node:sqlite");
 
 // dev 핫리로드 때마다 새 연결을 만들지 않도록 globalThis에 캐싱
 const globalForDb = globalThis as unknown as { __naverBlogDb?: DB };
@@ -35,9 +41,9 @@ function migrate(db: DB) {
 
 function open(): DB {
   fs.mkdirSync(DATA_DIR, { recursive: true });
-  const db = new Database(DB_PATH);
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
+  const { DatabaseSync } = process.getBuiltinModule("node:sqlite") as SqliteModule;
+  const db = new DatabaseSync(DB_PATH);
+  db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
   db.exec(fs.readFileSync(SCHEMA_PATH, "utf-8"));
   migrate(db);
   return db;
