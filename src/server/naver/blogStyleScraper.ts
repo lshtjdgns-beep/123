@@ -24,27 +24,33 @@ export async function readNaverPost(url: string, context?: BrowserContext): Prom
       const frameEl = await page.waitForSelector(`iframe[name=${naverPost.mainFrameName}]`, { timeout: 15000 }).catch(() => null);
       const frame = (frameEl ? await frameEl.contentFrame() : null) ?? page.mainFrame();
       await frame.waitForSelector(naverPost.mainContainer, { timeout: 15000 });
-      return await frame.evaluate((sel) => {
+      // ⚠ 브라우저 안에서 실행되는 함수에는 이름 붙은 헬퍼(const f = () => …)를 두지 않는다.
+      // 번들러/tsx가 그런 함수에 __name(...) 래퍼를 끼워 넣는데, 페이지 안에는 __name이 없어서
+      // "ReferenceError: __name is not defined"로 실패한다(라이브 확인). 원문만 가져와서 정리는 Node에서.
+      const raw = await frame.evaluate((sel) => {
         const container = document.querySelector(sel.mainContainer);
-        const text = (n: Element | null) => (n?.textContent ?? "").replace(/​/g, "").replace(/\s+/g, " ").trim();
-        const paragraphs = container
-          ? [...container.querySelectorAll(sel.paragraph)].map((p) => text(p)).filter(Boolean)
-          : [];
-        const headings = container
-          ? [...container.querySelectorAll(sel.headingCandidates)].map((p) => text(p)).filter(Boolean)
-          : [];
         return {
-          url: location.href,
-          title: text(document.querySelector(sel.title)),
-          fullText: paragraphs.length ? paragraphs.join("\n") : text(container),
-          paragraphs,
+          title: sel.titleCandidates.map((c) => document.querySelector(c)?.textContent ?? "").find((t) => t.trim()) ?? "",
+          containerText: container?.textContent ?? "",
+          paragraphs: container ? Array.from(container.querySelectorAll(sel.paragraph), (p) => p.textContent ?? "") : [],
+          headings: container ? Array.from(container.querySelectorAll(sel.headingCandidates), (p) => p.textContent ?? "") : [],
           imageCount: container ? container.querySelectorAll(sel.imageNodes).length : 0,
           tableCount: container ? container.querySelectorAll(sel.tableNodes).length : 0,
           hasMap: Boolean(container?.querySelector(sel.mapNodes)),
-          headings: [...new Set(headings)],
         };
-      }, { mainContainer: naverPost.mainContainer, paragraph: naverPost.paragraph, headingCandidates: naverPost.headingCandidates, imageNodes: naverPost.imageNodes, tableNodes: naverPost.tableNodes, mapNodes: naverPost.mapNodes, title: naverPost.title })
-        .then((r) => ({ ...r, url }));
+      }, { mainContainer: naverPost.mainContainer, paragraph: naverPost.paragraph, headingCandidates: naverPost.headingCandidates, imageNodes: naverPost.imageNodes, tableNodes: naverPost.tableNodes, mapNodes: naverPost.mapNodes, titleCandidates: naverPost.titleCandidates });
+      const clean = (t: string) => t.replace(/\u200b/g, "").replace(/\s+/g, " ").trim();
+      const paragraphs = raw.paragraphs.map(clean).filter(Boolean);
+      return {
+        url,
+        title: clean(raw.title),
+        fullText: paragraphs.length ? paragraphs.join("\n") : clean(raw.containerText),
+        paragraphs,
+        imageCount: raw.imageCount,
+        tableCount: raw.tableCount,
+        hasMap: raw.hasMap,
+        headings: [...new Set(raw.headings.map(clean).filter(Boolean))],
+      };
     } finally {
       await page.close().catch(() => {});
     }

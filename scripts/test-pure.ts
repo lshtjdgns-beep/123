@@ -18,6 +18,7 @@ import { finalizeTags, isComposedOfTitleWords } from "../src/server/seo/tagGener
 import { computeEndingStats } from "../src/server/style/styleProfileBuilder";
 import { parseAnalysis } from "../src/server/images/photoAnalysis";
 import { planImages } from "../src/lib/imagePlan";
+import { pickPostLinks, cleanLinkText } from "../src/server/naver/searchScraper";
 
 let passed = 0;
 const failures: string[] = [];
@@ -245,6 +246,25 @@ test("이미지 배치: 업로드 사진이 메인, 카드는 추가 이미지",
   assert.equal(plan.sectionMain[0]?.id, "up0");
   assert.deepEqual(plan.sectionExtras[0].map((x) => x.id), ["card0", "stock0"]);
   assert.equal(plan.sectionMain[1], null);
+});
+
+test("블로그탭: 2026-10 실제 링크 구성에서 제목=첫 의미 있는 링크, 요약문=그다음 긴 텍스트", () => {
+  // 라이브에서 본 순서: 썸네일("새 창 열림") → 블로그명 → 제목 → 요약문 → 사진 링크들
+  const u = "https://blog.naver.com/drama-tic/224453876929";
+  const links = [
+    { href: "https://blog.naver.com/drama-tic", text: "도치의 DRAMATIC❤️새 창 열림", heatmap: "articleSourceJSX_title" },
+    { href: u, text: "새 창 열림", heatmap: ".nblg" },
+    { href: u, text: "마포 합정역 맛집 기념일 데이트 추천 후기새 창 열림", heatmap: ".nblg" },
+    { href: u, text: "마포 합정 맛집 기념일 데이트 추천 후기 결혼기념일이라 맛있는 저녁을 먹고 싶어서 다녀왔어요.새 창 열림", heatmap: ".nblg" },
+    { href: u, text: "새 창 열림", heatmap: ".nblg" },
+    { href: "https://blog.naver.com/b/224454663599", text: "[최강금돈까스] 합정 돈까스 맛집 후기새 창 열림", heatmap: ".nblg" },
+  ];
+  const posts = pickPostLinks(links);
+  assert.equal(posts.length, 2);
+  assert.equal(posts[0].title, "마포 합정역 맛집 기념일 데이트 추천 후기");
+  assert.ok(posts[0].excerpt.startsWith("마포 합정 맛집 기념일 데이트 추천 후기 결혼기념일"));
+  assert.equal(posts[1].title, "[최강금돈까스] 합정 돈까스 맛집 후기");
+  assert.equal(cleanLinkText("제목새 창 열림"), "제목");
 });
 
 // ----------------------------------------------------------------

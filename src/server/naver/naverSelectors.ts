@@ -93,5 +93,7 @@ export const naverPost = {
   mapNodes: ".se-map, .se-placesMap",
   paragraph: ".se-text-paragraph",
   headingCandidates: ".se-quotation .se-text-paragraph, .se-section-title",
-  title: ".se-title-text, .pcol1, .se-documentTitle",
+  // 우선순위 순서대로 하나씩 시도한다(쉼표 셀렉터는 문서 순서상 먼저 나오는 걸 돌려줘서
+  // .se-documentTitle 전체 — 카테고리·작성자·"URL 복사 이웃추가" — 가 제목으로 잡혔다. 라이브 확인)
+  titleCandidates: [".se-title-text", ".se-documentTitle .se-text-paragraph", ".pcol1"],
 };
