@@ -130,7 +130,10 @@ async function toggleUnderline(frame: Frame) {
 // 팔레트 버튼 목록은 data/editor-debug.log에 남긴다 — 정확한 셀렉터를 확정하는 데 쓴다.
 
 const PALETTE_MARK = "data-nb-palette-target";
-const YELLOW_RGB = "rgb(255, 245, 147)";
+/** 흰색·투명이 아닌 배경색이면 "아직 칠해지는 중"으로 본다(네이버가 노란색을 조금 다른 값으로 렌더해도 잡히게) */
+function isColored(bg: string | null): boolean {
+  return Boolean(bg) && !["rgba(0, 0, 0, 0)", "transparent", "rgb(255, 255, 255)", "rgba(255, 255, 255, 1)"].includes(bg!);
+}
 
 async function openHighlightPalette(frame: Frame) {
   await frame.locator(sel.highlight.toolbarButton).first().click();
@@ -155,22 +158,26 @@ export async function markPaletteButton(frame: Frame, want: "noColor" | "white",
         if (want === "white") return /^#?(fff|ffffff)$/.test(color);
         return (
           (b.hasAttribute("data-color") && ["", "transparent", "none", "#00000000"].includes(color)) ||
-          /no-?color|transparent|none|reset|clear|default/i.test(b.className) ||
+          /no-?color|transparent|color-none|none-color/i.test(b.className) ||
           /없음|투명|제거|초기화|지우기|색\s*없/.test(label)
         );
       });
       if (target) target.setAttribute(mark, "1");
-      return { found: Boolean(target), described };
+      return { found: Boolean(target), described, target: target ? described[buttons.indexOf(target)] : null };
     },
     { yellowSelector, want, mark: PALETTE_MARK },
   );
 }
 
-function logPalette(lines: string[]) {
+function debugLog(message: string) {
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.appendFileSync(path.join(DATA_DIR, "editor-debug.log"), `[${new Date().toISOString()}] 하이라이트 팔레트 버튼:\n${lines.map((l) => `  ${l}`).join("\n")}\n`);
+    fs.appendFileSync(path.join(DATA_DIR, "editor-debug.log"), `[${new Date().toISOString()}] ${message}\n`);
   } catch { /* 디버그 로그 실패는 무시 */ }
+}
+
+function logPalette(lines: string[]) {
+  debugLog(`하이라이트 팔레트 버튼 (class | data-color | title | aria-label | text):\n${lines.map((l) => `  ${l}`).join("\n")}`);
 }
 
 async function highlightOn(frame: Frame, state: EditorState) {
@@ -191,6 +198,7 @@ async function highlightOff(frame: Frame, state: EditorState) {
   let info = mode === "noColor" ? await markPaletteButton(frame, "noColor", yellow).catch(() => null) : null;
   if (mode === "noColor" && !info?.found) mode = state.highlightOff = "white";
   if (mode === "white") info = await markPaletteButton(frame, "white", yellow).catch(() => null);
+  debugLog(`하이라이트 끄기 시도: 방법=${mode}, 누른 버튼=${info?.target ?? "(못 찾음)"}`);
   if (info?.found) {
     await frame.locator(`[${PALETTE_MARK}]`).first().click();
   } else {
@@ -226,12 +234,14 @@ async function verifyHighlightOff(frame: Frame, state: EditorState) {
   if (!state.verifyHighlightOff) return;
   state.verifyHighlightOff = false;
   const bg = await lastTypedBackground(frame);
-  if (bg !== YELLOW_RGB) return;
+  debugLog(`끈 뒤 친 글자의 배경색: ${bg === null ? "(읽기 실패)" : bg || "(없음)"} → ${isColored(bg) ? "아직 칠해짐" : "정상"}`);
+  if (!isColored(bg)) return;
   if (state.highlightOff === "noColor") {
     state.highlightOff = "white";
     await highlightOff(frame, state); // 흰색으로 다시 끄기(이후 글자부터 적용)
   } else {
     state.highlightOff = "disabled";
+    debugLog("하이라이트를 끌 방법을 찾지 못함 — 이후 하이라이트 생략");
     state.warnings.push("에디터에서 노란 하이라이트를 끄지 못했습니다. 일부 문장이 노랗게 칠해졌을 수 있으니 임시저장 글을 확인해주세요. (data/editor-debug.log 참고)");
   }
 }
@@ -569,6 +579,7 @@ export async function publishToNaver(input: PublishInput): Promise<PublishResult
   const context = await launchHeadedNaverContext(blogId);
   try {
     const page = await context.newPage();
+    debugLog(`===== 발행 시작 (${input.mode}) "${input.title}" =====`);
     onProgress?.("네이버 글쓰기 화면 여는 중…");
     await page.goto(sel.writeUrlTemplate(blogId), { waitUntil: "domcontentloaded", timeout: 45000 });
     await wait(page, 3000);
