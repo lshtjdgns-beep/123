@@ -7,6 +7,7 @@
 // - 같은 파일이 두 번 실행되면 포트 바인딩 실패(EADDRINUSE)로 두 번째가 스스로 종료.
 // - 접속 로그는 data/supervisor.log. 3초 간격 상태 폴링(/api/status)은 로그에서 제외(도배 방지).
 //
+// 앱 출력 로그: data/next-dev.log
 // 실행: node scripts/supervisor.mjs   (자동 시작은 scripts/start-supervisor-hidden.ps1 -Install)
 
 import http from "node:http";
@@ -39,6 +40,7 @@ const state = {
   restarts: 0,
   strikes: 0,
   startingUntil: 0,
+  restarting: false, // 재시작 중엔 정기 헬스체크가 끼어들어 두 번째 앱을 띄우지 않게
   child: null,
 };
 
@@ -75,17 +77,31 @@ function portOwner() {
 function killTree(pid) {
   return new Promise((resolve) => {
     if (IS_WIN) execFile("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true }, () => resolve());
-    else { try { process.kill(pid, "SIGKILL"); } catch { /* 이미 종료 */ } resolve(); }
+    // 리눅스/맥: 자식들 먼저(pkill -P), 그다음 본인
+    else execFile("pkill", ["-KILL", "-P", String(pid)], () => { try { process.kill(pid, "SIGKILL"); } catch { /* 이미 종료 */ } resolve(); });
   });
 }
 
+const APP_LOG = path.join(ROOT, "data", "next-dev.log");
+
+// ⚠ 창이 뜨지 않게 하려면:
+//  - detached:true 금지 — Windows에서 콘솔 없는(DETACHED) cmd가 npm/node를 띄우면 그 손자
+//    프로세스들이 각자 "새 콘솔"을 만들어서 터미널 창이 뜬다(windowsHide가 손자까지는 안 먹음,
+//    Windows Terminal이 기본 터미널이면 탭으로 열림 — 사용자 PC에서 실제로 발생).
+//  - cmd.exe / npm.cmd를 거치지 않고 node로 next를 직접 실행 + windowsHide(CREATE_NO_WINDOW).
+//  - 출력은 data/next-dev.log로.
 function startApp(reason) {
   log(`앱 시작 (${reason})`);
-  const opts = { cwd: ROOT, detached: true, stdio: "ignore", windowsHide: true };
-  state.child = IS_WIN
-    ? spawn("cmd.exe", ["/c", path.join(ROOT, "scripts", "dev.cmd")], opts)
-    : spawn("npm", ["run", "dev", "--", "-H", "0.0.0.0", "-p", String(APP_PORT)], opts);
-  state.child.unref();
+  const out = fs.openSync(APP_LOG, "a");
+  const nextBin = path.join(ROOT, "node_modules", "next", "dist", "bin", "next");
+  state.child = spawn(process.execPath, [nextBin, "dev", "-H", "0.0.0.0", "-p", String(APP_PORT)], {
+    cwd: ROOT,
+    stdio: ["ignore", out, out],
+    windowsHide: true,
+    env: { ...process.env, FORCE_COLOR: "0" },
+  });
+  fs.closeSync(out);
+  state.child.on("exit", (code) => log(`앱 프로세스 종료 (code ${code})`));
   state.lastRestartAt = new Date().toISOString();
   state.restarts++;
   state.strikes = 0;
@@ -93,13 +109,20 @@ function startApp(reason) {
 }
 
 async function restartApp(reason) {
-  const pid = await portOwner();
-  if (pid) {
-    log(`PID ${pid} 강제 종료 (${reason})`);
-    await killTree(pid);
-    await new Promise((r) => setTimeout(r, 1500));
+  if (state.restarting) return;
+  state.restarting = true;
+  try {
+    // 우리가 띄운 next dev(부모)와 포트 주인(next-server 자식)을 둘 다 트리째 정리
+    const pids = new Set([state.child?.exitCode === null ? state.child.pid : null, await portOwner()].filter(Boolean));
+    for (const pid of pids) {
+      log(`PID ${pid} 강제 종료 (${reason})`);
+      await killTree(pid);
+    }
+    if (pids.size) await new Promise((r) => setTimeout(r, 1500));
+    startApp(reason);
+  } finally {
+    state.restarting = false;
   }
-  startApp(reason);
 }
 
 async function tick() {
@@ -111,7 +134,7 @@ async function tick() {
     state.startingUntil = 0;
     return;
   }
-  if (Date.now() < state.startingUntil) return; // 아직 켜지는 중
+  if (state.restarting || Date.now() < state.startingUntil) return; // 재시작 중이거나 아직 켜지는 중
   const pid = await portOwner();
   if (!pid) {
     startApp("헬스체크 실패, 포트 주인 없음");

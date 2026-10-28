@@ -40,6 +40,7 @@ powershell -ExecutionPolicy Bypass -File scripts\start-supervisor-hidden.ps1 -In
 로그인할 때 `scripts/supervisor.mjs`가 창 없이 실행되어 5초마다 서버를 확인하고, 죽거나 멈추면 다시 띄웁니다.
 폰에서 `http://<PC IP>:3001/`을 열면 서버가 꺼져 있어도 "서버 켜기 / 다시 시작"을 누를 수 있습니다(사설 IP에서만 접속 가능).
 해제: `-Uninstall`.
+서버는 창 없이 실행되고, 서버 출력은 `data/next-dev.log`, 워치독 기록은 `data/supervisor.log`에 남습니다.
 
 ## 데이터
 
