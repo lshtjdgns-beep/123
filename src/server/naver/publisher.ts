@@ -90,11 +90,62 @@ function assertBlogIdMatches(page: Page, blogId: string) {
   }
 }
 
-async function dismissContinueWritingPopup(frame: Frame) {
-  if (await isVisible(frame, sel.continueWritingPopup.cancelButton, 3000)) {
-    await frame.locator(sel.continueWritingPopup.cancelButton).first().click();
-    await wait(frame.page(), 400);
+/**
+ * "작성 중인 글이 있습니다. 이어서 작성하시겠습니까?" 팝업.
+ * ⚠ 3초만 기다리면 늦게 뜬 팝업을 놓치고 제목 타이핑을 시작하는데, 타이핑 중 Enter가 팝업의
+ * 기본 버튼(이어서 작성)을 눌러 이전 글이 불러와지고 그 위에 같은 글이 또 써졌다(사용자 PC 실측).
+ * 그래서 8초 동안 계속 살펴보고, 뜨면 "취소"(새 글 쓰기)를 누른다.
+ */
+export async function dismissContinueWritingPopup(frame: Frame) {
+  const page = frame.page();
+  const cancel = frame.locator(sel.continueWritingPopup.cancelButton).first();
+  const deadline = Date.now() + 8000;
+  while (Date.now() < deadline) {
+    if (await cancel.isVisible().catch(() => false)) {
+      await cancel.click().catch(() => {});
+      debugLog("이어서 작성 팝업 → 취소(새 글)");
+      await wait(page, 600);
+      return;
+    }
+    await wait(page, 300);
   }
+}
+
+/** 제목·본문에 글자나 사진·인용구 같은 컴포넌트가 이미 있으면 "비어 있지 않음" */
+export async function isEditorEmpty(frame: Frame): Promise<boolean> {
+  const info = await frame
+    .evaluate((s) => {
+      const title = document.querySelector(s.titleArea)?.textContent ?? "";
+      const wrap = document.querySelector(s.bodyArea);
+      const components = wrap ? wrap.querySelectorAll(".se-component").length : 0;
+      const nonText = wrap ? wrap.querySelectorAll(".se-component:not(.se-text):not(.se-documentTitle)").length : 0;
+      const bodyText = wrap
+        ? Array.from(wrap.querySelectorAll(".se-component.se-text"), (c) => c.textContent ?? "").join("")
+        : "";
+      return { title: title.replace(/\u200b/g, "").trim(), bodyText: bodyText.replace(/\u200b/g, "").trim(), components, nonText };
+    }, { titleArea: sel.titleArea, bodyArea: sel.bodyArea })
+    .catch(() => null);
+  if (!info) return true; // 판별 실패 시 막지는 않는다
+  const empty = !info.title && !info.bodyText && info.nonText === 0;
+  if (!empty) debugLog(`에디터가 비어 있지 않음: 제목="${info.title.slice(0, 30)}", 본문 ${info.bodyText.length}자, 컴포넌트 ${info.components}개`);
+  return empty;
+}
+
+/** 빈 글쓰기 화면을 연다. 이전 글이 열려 있으면 한 번 새로 고치고, 그래도 안 비면 멈춘다(덮어쓰기 방지). */
+async function openFreshEditor(page: Page, blogId: string): Promise<Frame> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await page.goto(sel.writeUrlTemplate(blogId), { waitUntil: "domcontentloaded", timeout: 45000 });
+    await wait(page, 3000);
+    assertBlogIdMatches(page, blogId);
+    const frame = await getEditorFrame(page);
+    await dismissContinueWritingPopup(frame);
+    await dismissHelpPanel(frame);
+    if (await isEditorEmpty(frame)) return frame;
+  }
+  throw new Error(
+    "네이버 글쓰기 화면에 이전에 쓰던 글이 열려 있어서 멈췄습니다(같은 글이 겹쳐 써지는 것을 막기 위해). " +
+      "네이버 블로그 글쓰기 화면에서 그 글을 저장하거나 지운 뒤 다시 시도해주세요.",
+  );
 }
 
 async function dismissHelpPanel(frame: Frame) {
@@ -136,7 +187,7 @@ function isColored(bg: string | null): boolean {
 }
 
 async function openHighlightPalette(frame: Frame) {
-  await frame.locator(sel.highlight.toolbarButton).first().click();
+  await frame.locator(sel.highlight.toolbarButton).first().click({ timeout: 5000 });
   await wait(frame.page(), 150);
 }
 
@@ -182,7 +233,7 @@ function logPalette(lines: string[]) {
 
 async function highlightOn(frame: Frame) {
   await openHighlightPalette(frame);
-  await frame.locator(sel.highlight.swatch(sel.highlight.yellow)).first().click();
+  await frame.locator(sel.highlight.swatch(sel.highlight.yellow)).first().click({ timeout: 5000 });
   await wait(frame.page(), 120);
 }
 
@@ -262,9 +313,17 @@ async function applyMarks(frame: Frame, state: EditorState, desired: Set<Mark>) 
   if (state.marks.underline !== desired.has("underline")) { await toggleUnderline(frame); state.marks.underline = !state.marks.underline; }
   const wantHl = desired.has("highlight") && state.highlightOff !== "disabled";
   if (state.marks.highlight !== wantHl) {
-    if (wantHl) await highlightOn(frame);
-    else await highlightOff(frame, state);
-    state.marks.highlight = wantHl;
+    try {
+      if (wantHl) await highlightOn(frame);
+      else await highlightOff(frame, state);
+      state.marks.highlight = wantHl;
+    } catch (e) {
+      // 툴바에서 형광펜 버튼을 못 찾음(커서가 사진·인용구 안에 있는 등) — 글 전체를 실패시키지 않고 그 강조만 건너뜀
+      await frame.page().keyboard.press("Escape").catch(() => {});
+      debugLog(`하이라이트 ${wantHl ? "켜기" : "끄기"} 실패: ${(e as Error).message.split("\n")[0]}`);
+      if (!wantHl) state.warnings.push("노란 하이라이트를 끄는 중 문제가 있었습니다. 임시저장 글의 노란색 부분을 확인해주세요.");
+      if (wantHl) state.marks.highlight = false;
+    }
   }
 }
 
@@ -592,12 +651,7 @@ export async function publishToNaver(input: PublishInput): Promise<PublishResult
     const page = await context.newPage();
     debugLog(`===== 발행 시작 (${input.mode}) "${input.title}" =====`);
     onProgress?.("네이버 글쓰기 화면 여는 중…");
-    await page.goto(sel.writeUrlTemplate(blogId), { waitUntil: "domcontentloaded", timeout: 45000 });
-    await wait(page, 3000);
-    assertBlogIdMatches(page, blogId);
-    const frame = await getEditorFrame(page);
-    await dismissContinueWritingPopup(frame);
-    await dismissHelpPanel(frame);
+    const frame = await openFreshEditor(page, blogId);
 
     onProgress?.("제목 입력 중…");
     await frame.locator(sel.titleArea).first().click();

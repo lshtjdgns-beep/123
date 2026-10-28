@@ -25,3 +25,9 @@ export function listHistory(limit = 100): HistoryItem[] {
     FROM published_posts p JOIN drafts d ON d.id = p.draft_id
     ORDER BY p.published_at DESC, p.rowid DESC LIMIT ?`).all(limit) as HistoryItem[];
 }
+
+/** 이 초안이 네이버에 마지막으로 성공적으로 저장/발행된 기록(중복 저장 방지 안내용) */
+export function getLastSuccessfulPublish(draftId: string): PublishedPostRow | undefined {
+  return getDb().prepare("SELECT * FROM published_posts WHERE draft_id = ? AND success = 1 ORDER BY published_at DESC, rowid DESC LIMIT 1")
+    .get(draftId) as PublishedPostRow | undefined;
+}

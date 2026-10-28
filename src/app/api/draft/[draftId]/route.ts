@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getDraft, updateDraft } from "@/server/db/repositories/drafts";
 import { listImagesForDraft } from "@/server/db/repositories/images";
+import { getLastSuccessfulPublish } from "@/server/db/repositories/publishedPosts";
 import { blocksToHtml, blocksToPlainText, htmlToBlocks, plainTextToBlocks } from "@/lib/textToHtml";
 import { jsonError } from "@/server/http";
 
@@ -12,7 +13,8 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/draft/[draftId]
   const images = listImagesForDraft(draftId).map((i) => ({
     id: i.id, slotIndex: i.slot_index, sourceRef: i.source_ref, license: i.license_info, url: `/api/images/${i.id}`,
   }));
-  return NextResponse.json({ draft, bodyText: blocksToPlainText(htmlToBlocks(draft.bodyHtml)), images });
+  const last = getLastSuccessfulPublish(draftId);
+  return NextResponse.json({ draft, bodyText: blocksToPlainText(htmlToBlocks(draft.bodyHtml)), images, lastSavedAt: last?.published_at ?? null });
 }
 
 const Patch = z.object({

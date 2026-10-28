@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { api } from "@/lib/clientFetch";
+import { api, parseDbTime } from "@/lib/clientFetch";
+
+const formatDbTime = (s: string) => new Date(parseDbTime(s)).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
 import type { DraftReport, VerificationCheck } from "@/lib/reportTypes";
 import DraftPreview, { type PreviewImage } from "./DraftPreview";
 import GenerationReport, { CheckList } from "./GenerationReport";
@@ -11,6 +13,8 @@ type DraftResponse = {
   draft: { id: string; title: string; keyword: string; status: string; tags: string[]; places: string[]; businessName: string | null; report: DraftReport | null };
   bodyText: string;
   images: PreviewImage[];
+  /** 네이버에 마지막으로 저장 성공한 시각(UTC). 있으면 다시 저장할 때 한 번 더 확인 */
+  lastSavedAt: string | null;
 };
 
 type Tab = "edit" | "preview" | "checks" | "report";
@@ -33,6 +37,7 @@ export default function DraftEditor({ draftId }: { draftId: string }) {
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmLive, setConfirmLive] = useState(false);
+  const [confirmResave, setConfirmResave] = useState(false);
   const [dirty, setDirty] = useState(false);
 
   const load = useCallback(async () => {
@@ -61,10 +66,10 @@ export default function DraftEditor({ draftId }: { draftId: string }) {
   }, [load, loadChecks]);
 
   useEffect(() => {
-    if (!confirmLive) return;
-    const t = setTimeout(() => setConfirmLive(false), 5000);
+    if (!confirmLive && !confirmResave) return;
+    const t = setTimeout(() => { setConfirmLive(false); setConfirmResave(false); }, 5000);
     return () => clearTimeout(t);
-  }, [confirmLive]);
+  }, [confirmLive, confirmResave]);
 
   const splitList = (s: string) => s.split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
 
@@ -86,13 +91,17 @@ export default function DraftEditor({ draftId }: { draftId: string }) {
 
   async function publish(mode: "draft" | "live") {
     if (mode === "live" && !confirmLive) { setConfirmLive(true); return; }
+    // 이미 네이버에 저장된 초안을 또 저장하면 네이버에 같은 글이 하나 더 생긴다 — 두 번 눌러 확인
+    if (mode === "draft" && data?.lastSavedAt && !confirmResave) { setConfirmResave(true); return; }
     setConfirmLive(false);
+    setConfirmResave(false);
     if (dirty && !(await save())) return;
     setBusy(mode === "draft" ? "네이버에 임시저장 중… (PC 화면에서 자동 입력이 진행됩니다)" : "네이버에 발행 중…");
     try {
       const r = await api<{ success: boolean; url: string | null; error: string | null; warnings?: string[] }>("/api/publish", { method: "POST", json: { draftId, mode } });
       const done = mode === "draft" ? "임시저장 완료 — 네이버에서 확인 후 직접 발행하세요." : `발행 완료${r.url ? `: ${r.url}` : ""}`;
       setMessage({ ok: !r.warnings?.length, text: [done, ...(r.warnings ?? [])].join(" ") });
+      if (r.success) await load();
     } catch (e) {
       setMessage({ ok: false, text: (e as Error).message });
     } finally {
@@ -112,12 +121,14 @@ export default function DraftEditor({ draftId }: { draftId: string }) {
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <p className="text-xs text-muted">키워드 {data.draft.keyword}{data.draft.businessName ? ` · 상호 ${data.draft.businessName}` : ""} · 상태 {data.draft.status}</p>
+          <p className="text-xs text-muted">{data.lastSavedAt && <span className="text-brand">네이버 임시저장됨({formatDbTime(data.lastSavedAt)}) · </span>}키워드 {data.draft.keyword}{data.draft.businessName ? ` · 상호 ${data.draft.businessName}` : ""} · 상태 {data.draft.status}</p>
           <h1 className="text-xl font-bold">{title}</h1>
         </div>
         <div className="flex flex-wrap gap-2">
           <button type="button" className="btn" onClick={save} disabled={Boolean(busy) || !dirty}>저장</button>
-          <button type="button" className="btn-primary" onClick={() => publish("draft")} disabled={Boolean(busy)}>네이버 임시저장</button>
+          <button type="button" className={confirmResave ? "btn border-warn text-warn" : "btn-primary"} onClick={() => publish("draft")} disabled={Boolean(busy)}>
+            {confirmResave ? "이미 저장됨 — 한 번 더 누르면 하나 더 저장" : data.lastSavedAt ? "네이버에 다시 임시저장" : "네이버 임시저장"}
+          </button>
           <button type="button" className={confirmLive ? "btn border-danger text-danger" : "btn"} onClick={() => publish("live")} disabled={Boolean(busy)}>
             {confirmLive ? "정말 발행할까요? 한 번 더 누르세요" : "바로 발행"}
           </button>
