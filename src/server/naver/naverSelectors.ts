@@ -23,6 +23,10 @@ export const smartEditor = {
     toolbarButton: "button.se-background-color-toolbar-button",
     swatch: (hex: string) => `button.se-color-palette[data-color='${hex}']`,
     yellow: "#fff593",
+    // 하이라이트 끄기 = 팔레트의 "색상 없음" 버튼(2026-10 사용자 PC 실측:
+    // class="se-color-palette se-color-palette-no-color", title="색상 없음", data-color 없음).
+    // 같은 노란 스와치를 다시 누르는 건 해제가 아니다(전부 노랗게 칠해지던 원인).
+    noColorButton: "button.se-color-palette-no-color",
   },
   bold: { toolbarButton: "button.se-bold-toolbar-button" },
   underline: { toolbarButton: "button.se-underline-toolbar-button" },

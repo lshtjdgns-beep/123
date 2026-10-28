@@ -180,20 +180,31 @@ function logPalette(lines: string[]) {
   debugLog(`하이라이트 팔레트 버튼 (class | data-color | title | aria-label | text):\n${lines.map((l) => `  ${l}`).join("\n")}`);
 }
 
-async function highlightOn(frame: Frame, state: EditorState) {
+async function highlightOn(frame: Frame) {
   await openHighlightPalette(frame);
-  if (!state.paletteLogged) {
-    state.paletteLogged = true;
-    const info = await markPaletteButton(frame, "noColor", sel.highlight.swatch(sel.highlight.yellow)).catch(() => null);
-    if (info) logPalette(info.described);
-  }
   await frame.locator(sel.highlight.swatch(sel.highlight.yellow)).first().click();
   await wait(frame.page(), 120);
 }
 
 async function highlightOff(frame: Frame, state: EditorState) {
   await openHighlightPalette(frame);
+  // 1순위: 실측으로 확인된 "색상 없음" 버튼
+  if (state.highlightOff === "noColor") {
+    const confirmed = frame.locator(sel.highlight.noColorButton).first();
+    if (await confirmed.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await confirmed.click();
+      await wait(frame.page(), 120);
+      state.verifyHighlightOff = true;
+      return;
+    }
+  }
+  // 네이버가 팔레트를 바꿨을 때를 위한 대비: 버튼 목록을 기록하고 후보를 찾아 누른다
   const yellow = sel.highlight.swatch(sel.highlight.yellow);
+  if (!state.paletteLogged) {
+    state.paletteLogged = true;
+    const dump = await markPaletteButton(frame, "noColor", yellow).catch(() => null);
+    if (dump) logPalette(dump.described);
+  }
   let mode = state.highlightOff;
   let info = mode === "noColor" ? await markPaletteButton(frame, "noColor", yellow).catch(() => null) : null;
   if (mode === "noColor" && !info?.found) mode = state.highlightOff = "white";
@@ -234,8 +245,8 @@ async function verifyHighlightOff(frame: Frame, state: EditorState) {
   if (!state.verifyHighlightOff) return;
   state.verifyHighlightOff = false;
   const bg = await lastTypedBackground(frame);
-  debugLog(`끈 뒤 친 글자의 배경색: ${bg === null ? "(읽기 실패)" : bg || "(없음)"} → ${isColored(bg) ? "아직 칠해짐" : "정상"}`);
   if (!isColored(bg)) return;
+  debugLog(`하이라이트를 껐는데 다음 글자 배경색이 ${bg} — 다른 방법으로 다시 끕니다`);
   if (state.highlightOff === "noColor") {
     state.highlightOff = "white";
     await highlightOff(frame, state); // 흰색으로 다시 끄기(이후 글자부터 적용)
@@ -251,7 +262,7 @@ async function applyMarks(frame: Frame, state: EditorState, desired: Set<Mark>) 
   if (state.marks.underline !== desired.has("underline")) { await toggleUnderline(frame); state.marks.underline = !state.marks.underline; }
   const wantHl = desired.has("highlight") && state.highlightOff !== "disabled";
   if (state.marks.highlight !== wantHl) {
-    if (wantHl) await highlightOn(frame, state);
+    if (wantHl) await highlightOn(frame);
     else await highlightOff(frame, state);
     state.marks.highlight = wantHl;
   }
