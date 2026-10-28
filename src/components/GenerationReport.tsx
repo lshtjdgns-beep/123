@@ -129,6 +129,7 @@ export default function GenerationReport({ report }: { report: DraftReport | nul
       <Section title="이미지 / 임시저장" badge={<Badge ok={report.autoSave ? (report.autoSave.attempted ? report.autoSave.success : null) : null} text={report.autoSave?.attempted ? (report.autoSave.success ? "임시저장 완료" : "임시저장 실패") : "임시저장 안 함"} />}>
         <p>이미지 {report.images?.count ?? 0}장{report.images?.error ? ` — ${report.images.error}` : ""}</p>
         {report.autoSave?.error && <p className="text-danger">{report.autoSave.error}</p>}
+        {report.autoSave?.warnings?.map((w) => <p key={w} className="text-warn">{w}</p>)}
       </Section>
     </div>
   );

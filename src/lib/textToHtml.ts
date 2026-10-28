@@ -193,6 +193,14 @@ export function htmlToBlocks(html: string): ContentBlock[] {
   return blocks;
 }
 
+/**
+ * 정보 라벨 문단: 문단 전체가 짧은 **굵게** 한 덩어리("**주차**", "**영업시간**").
+ * 섹션 안에서 주차·예약·영업시간 같은 항목 이름을 굵게 표시하는 용도라 강조 횟수에 세지 않는다.
+ */
+export function isLabelParagraph(text: string): boolean {
+  return /^\*\*[^*\n]{1,15}\*\*$/.test(text.trim());
+}
+
 export function stripMarkers(s: string): string {
   return s.replace(/\*\*|__|==/g, "");
 }

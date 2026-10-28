@@ -148,7 +148,7 @@ export async function runPipeline(runId: string, input: PipelineInput): Promise<
     if (input.autoSaveDraft ?? true) {
       detail("네이버 임시저장 중…");
       const r = await publishDraftToNaver(draftId, { mode: "draft", onProgress: detail }).catch((e) => ({ success: false, url: null, error: (e as Error).message }));
-      report.autoSave = { attempted: true, success: r.success, error: r.error };
+      report.autoSave = { attempted: true, success: r.success, error: r.error, warnings: "warnings" in r ? r.warnings : undefined };
       updateDraft(draftId, { report });
       saveMsg = r.success ? " · 네이버 임시저장 완료" : ` · 네이버 임시저장 실패(${r.error})`;
     } else {

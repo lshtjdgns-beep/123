@@ -73,7 +73,7 @@ export type DraftReport = {
     review?: AnalysisReview | null;
   };
   images?: { count: number; error: string | null } | null;
-  autoSave: { attempted: boolean; success: boolean; error: string | null } | null;
+  autoSave: { attempted: boolean; success: boolean; error: string | null; warnings?: string[] } | null;
 };
 
 export const DEFAULT_TARGETS: DraftTargets = {

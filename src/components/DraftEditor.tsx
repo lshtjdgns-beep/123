@@ -90,8 +90,9 @@ export default function DraftEditor({ draftId }: { draftId: string }) {
     if (dirty && !(await save())) return;
     setBusy(mode === "draft" ? "네이버에 임시저장 중… (PC 화면에서 자동 입력이 진행됩니다)" : "네이버에 발행 중…");
     try {
-      const r = await api<{ success: boolean; url: string | null; error: string | null }>("/api/publish", { method: "POST", json: { draftId, mode } });
-      setMessage({ ok: true, text: mode === "draft" ? "임시저장 완료 — 네이버에서 확인 후 직접 발행하세요." : `발행 완료${r.url ? `: ${r.url}` : ""}` });
+      const r = await api<{ success: boolean; url: string | null; error: string | null; warnings?: string[] }>("/api/publish", { method: "POST", json: { draftId, mode } });
+      const done = mode === "draft" ? "임시저장 완료 — 네이버에서 확인 후 직접 발행하세요." : `발행 완료${r.url ? `: ${r.url}` : ""}`;
+      setMessage({ ok: !r.warnings?.length, text: [done, ...(r.warnings ?? [])].join(" ") });
     } catch (e) {
       setMessage({ ok: false, text: (e as Error).message });
     } finally {

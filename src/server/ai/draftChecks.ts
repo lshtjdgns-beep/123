@@ -5,7 +5,7 @@
 // "server-only"를 붙이지 않은 이유: 테스트 스크립트(tsx)에서 직접 import하기 위해.
 // 클라이언트 컴포넌트에서는 import하지 않는다.
 
-import { plainTextToBlocks, stripMarkers, blocksToVisibleText, type ContentBlock } from "@/lib/textToHtml";
+import { plainTextToBlocks, stripMarkers, blocksToVisibleText, isLabelParagraph, type ContentBlock } from "@/lib/textToHtml";
 import { splitIntoSections } from "@/lib/sectionAssignment";
 import type { DraftTargets, VerificationCheck } from "@/lib/reportTypes";
 import { isComposedOfTitleWords, normalizeTag } from "../seo/tagGenerator";
@@ -128,7 +128,7 @@ function emphasisCounts(blocks: ContentBlock[]) {
   let bu = 0;
   let hl = 0;
   for (const b of blocks) {
-    if (b.type !== "paragraph") continue;
+    if (b.type !== "paragraph" || isLabelParagraph(b.text)) continue;
     bu += b.text.match(BOLD_OR_UNDERLINE)?.length ?? 0;
     hl += b.text.match(HIGHLIGHT)?.length ?? 0;
   }
@@ -229,7 +229,7 @@ export function evaluateChecks(input: EvaluateInput): VerificationCheck[] {
     if (c.hl !== 1) problems.push(`${name} 섹션의 노란 하이라이트가 ${c.hl}번입니다(정확히 1번)`);
   });
   add("강조 규칙", problems.length === 0, problems.length ? problems.join(" / ") : "통과",
-    `강조 규칙을 고치세요: ${problems.join("; ")}. 각 소제목 섹션마다 **굵게** 또는 __밑줄__ 합쳐 1~2번, ==하이라이트== 정확히 1번, 도입부에는 강조 없음.`);
+    `강조 규칙을 고치세요: ${problems.join("; ")}. 각 소제목 섹션마다 **굵게** 또는 __밑줄__ 합쳐 1~2번(정보 라벨 줄 제외), ==하이라이트==는 그 섹션의 가장 중요한 짧은 구절 딱 1번, 도입부에는 강조 없음.`);
 
   // 13. 근거 없는 정보
   if (factCorpus != null) {
@@ -282,7 +282,7 @@ export function capEmphasisPerSection(blocks: ContentBlock[], maxBu = 2, maxHl =
   let hl = 0;
   return blocks.map((b) => {
     if (b.type === "heading") { bu = 0; hl = 0; return b; }
-    if (b.type !== "paragraph") return b;
+    if (b.type !== "paragraph" || isLabelParagraph(b.text)) return b;
     let text = b.text.replace(BOLD_OR_UNDERLINE, (m, _mk, inner) => (++bu > maxBu ? inner : m));
     text = text.replace(HIGHLIGHT, (m, inner) => (++hl > maxHl ? inner : m));
     return text === b.text ? b : { ...b, text };

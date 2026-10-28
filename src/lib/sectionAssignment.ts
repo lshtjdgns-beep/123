@@ -1,6 +1,6 @@
 // 블록을 "도입부 + 소제목 섹션들"로 나누고, 섹션별 강조 문장(사진 캡션 후보)을 찾는다.
 // 서버(발행)와 클라이언트(미리보기) 공용 — server-only 금지.
-import type { ContentBlock } from "./textToHtml";
+import { isLabelParagraph, type ContentBlock } from "./textToHtml";
 
 export type Section = { heading: string | null; blocks: ContentBlock[] };
 
@@ -17,7 +17,7 @@ export function splitIntoSections(blocks: ContentBlock[]): Section[] {
 /** 섹션 안에서 굵게/밑줄 강조가 들어간 첫 문단(사진 캡션으로 재사용) */
 export function findSectionCaption(section: Section): string | null {
   for (const b of section.blocks) {
-    if (b.type === "paragraph" && /\*\*[^*]+\*\*|__[^_]+__/.test(b.text)) return b.text;
+    if (b.type === "paragraph" && !isLabelParagraph(b.text) && /\*\*[^*]+\*\*|__[^_]+__/.test(b.text)) return b.text;
   }
   return null;
 }

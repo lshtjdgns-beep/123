@@ -19,6 +19,8 @@ import { finalizeTags, isComposedOfTitleWords } from "../src/server/seo/tagGener
 import { computeEndingStats } from "../src/server/style/styleProfileBuilder";
 import { parseAnalysis } from "../src/server/images/photoAnalysis";
 import { planImages } from "../src/lib/imagePlan";
+import { isLabelParagraph } from "../src/lib/textToHtml";
+import { splitIntoSections, findSectionCaption } from "../src/lib/sectionAssignment";
 import { pickPostLinks, cleanLinkText } from "../src/server/naver/searchScraper";
 
 let passed = 0;
@@ -264,6 +266,24 @@ test("블로그탭: 2026-10 실제 링크 구성에서 제목=첫 의미 있는 
   assert.ok(posts[0].excerpt.startsWith("마포 합정 맛집 기념일 데이트 추천 후기 결혼기념일"));
   assert.equal(posts[1].title, "[최강금돈까스] 합정 돈까스 맛집 후기");
   assert.equal(cleanLinkText("제목새 창 열림"), "제목");
+});
+
+test("정보 라벨(**주차**)은 강조 횟수·백스톱·사진 캡션에서 제외된다", () => {
+  assert.ok(isLabelParagraph("**주차**"));
+  assert.ok(isLabelParagraph(" **브레이크 타임** "));
+  assert.ok(!isLabelParagraph("**주차**는 어려워요."));
+  assert.ok(!isLabelParagraph("**이건 라벨이라기엔 너무 긴 굵은 문장입니다**"));
+  const blocks = plainTextToBlocks("[[H]]방문 정보[[/H]]\n**영업시간**\n12시부터 열어요.\n**주차**\n**전용 주차장이 없어서** 대중교통을 추천해요.\n==방문 전 전화 확인==이 좋아요.\n**예약**\n__주말엔 예약 필수__예요.");
+  // 라벨 3개는 세지 않음 → 굵게/밑줄 2번, 하이라이트 1번 → 통과
+  const checks = evaluateChecks({ title: "t", blocks, tags: [], keyword: "x", business: null,
+    targets: { minBodyLength: 1, minSubheadingCount: 1, minTableCount: 0, maxTitleLength: 32 }, overlap: null, factCorpus: "" });
+  const emph = checks.find((c) => c.label === "강조 규칙")!;
+  assert.ok(emph.pass, emph.detail);
+  // 백스톱이 라벨의 굵게를 벗기지 않는다
+  const capped = capEmphasisPerSection(blocks).map((b) => ("text" in b ? b.text : ""));
+  assert.ok(capped.includes("**주차**") && capped.includes("**예약**") && capped.includes("**영업시간**"));
+  // 사진 캡션은 라벨이 아니라 실제 강조 문장
+  assert.equal(findSectionCaption(splitIntoSections(blocks)[1]), "**전용 주차장이 없어서** 대중교통을 추천해요.");
 });
 
 // ----------------------------------------------------------------

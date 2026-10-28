@@ -1,12 +1,14 @@
 import "server-only";
+import fs from "node:fs";
+import path from "node:path";
 import type { Frame, Page } from "playwright";
 import { launchHeadedNaverContext, saveStorageState } from "../browser/playwrightManager";
 import { smartEditor as sel } from "./naverSelectors";
-import { sessionStatePath } from "@/lib/paths";
 import { parseMarkedRuns, wrapIntoRunLines, type Mark } from "@/lib/centeredLineWrap";
 import { splitIntoSections, removeFirstMatchingParagraph } from "@/lib/sectionAssignment";
 import { randomExtraGap } from "@/lib/imagePlan";
-import type { ContentBlock } from "@/lib/textToHtml";
+import { isLabelParagraph, type ContentBlock } from "@/lib/textToHtml";
+import { DATA_DIR, sessionStatePath } from "@/lib/paths";
 
 export type PublishMode = "draft" | "live";
 export type Visibility = keyof typeof sel.visibilityRadioLabel;
@@ -29,7 +31,8 @@ export type PublishInput = {
   onProgress?: (msg: string) => void;
 };
 
-export type PublishResult = { success: boolean; url: string | null; error: string | null };
+/** warnings: 발행은 됐지만 사람이 확인해야 할 것(예: 하이라이트를 끄지 못해 이후 하이라이트를 생략함) */
+export type PublishResult = { success: boolean; url: string | null; error: string | null; warnings?: string[] };
 
 /**
  * 에디터 상태.
@@ -37,7 +40,17 @@ export type PublishResult = { success: boolean; url: string | null; error: strin
  *  - 현재상태 적용 버튼(정렬, 표 셀 배경색): 커서/셀에 직접 적용 → 끝나고 "리셋"을 부르지 않는다.
  *    정렬은 문서 전체에서 딱 한 번(첫 문단에 텍스트가 생긴 직후) 설정하면 이후 문단에 상속된다.
  */
-type EditorState = { fresh: boolean; alignmentSet: boolean; marks: Record<Mark, boolean> };
+type EditorState = {
+  fresh: boolean;
+  alignmentSet: boolean;
+  marks: Record<Mark, boolean>;
+  /** 하이라이트 끄기 방법: 팔레트의 "색 없음" 버튼 → 흰색 스와치 → 포기(이후 하이라이트 생략) */
+  highlightOff: "noColor" | "white" | "disabled";
+  /** 하이라이트를 끈 직후 — 다음 평문이 정말 노란색이 아닌지 DOM으로 확인해야 함 */
+  verifyHighlightOff: boolean;
+  paletteLogged: boolean;
+  warnings: string[];
+};
 
 const wait = (page: Page, ms: number) => page.waitForTimeout(ms);
 
@@ -108,18 +121,130 @@ async function toggleUnderline(frame: Frame) {
 
 // ⚠ 하이라이트를 "평문으로 타이핑 후 Selection API로 재선택해 색 입히기"로 구현하면 색이
 // 켜진 채로 뒤 문단이 전부 하이라이트되는 버그가 난다. 반드시 켜기 → 입력 → 끄기.
-// 켤 때와 끌 때 모두 같은 노란 스와치를 누른다(팔레트가 토글로 동작).
-async function toggleHighlight(frame: Frame) {
+//
+// ⚠ 끄기: "같은 노란 스와치를 다시 누르면 해제"는 틀린 가정이었다 — 실제로는 계속 노란색이라
+// 첫 하이라이트 이후 모든 문단이 노랗게 칠해졌다(사용자 PC 실측). 그래서
+//  1) 팔레트 안에서 "색 없음" 버튼을 런타임에 찾아 누르고(data-color/클래스/라벨로 판별),
+//  2) 다음 평문을 친 뒤 DOM에서 정말 노란색이 아닌지 확인하고,
+//  3) 아니면 흰색 스와치로, 그것도 안 되면 이후 하이라이트를 생략한다(전부 노랗게 되는 것보다 낫다).
+// 팔레트 버튼 목록은 data/editor-debug.log에 남긴다 — 정확한 셀렉터를 확정하는 데 쓴다.
+
+const PALETTE_MARK = "data-nb-palette-target";
+const YELLOW_RGB = "rgb(255, 245, 147)";
+
+async function openHighlightPalette(frame: Frame) {
   await frame.locator(sel.highlight.toolbarButton).first().click();
   await wait(frame.page(), 150);
+}
+
+/** 노란 스와치가 들어 있는 팔레트 안의 버튼들 설명(디버그) + 원하는 버튼에 표식 달기 */
+export async function markPaletteButton(frame: Frame, want: "noColor" | "white", yellowSelector: string) {
+  return frame.evaluate(
+    ({ yellowSelector, want, mark }) => {
+      document.querySelectorAll(`[${mark}]`).forEach((el) => el.removeAttribute(mark));
+      const yellow = document.querySelector(yellowSelector);
+      let box: Element | null = yellow;
+      for (let i = 0; i < 5 && box && box.querySelectorAll("button").length < 8; i++) box = box.parentElement;
+      const buttons = Array.from((box ?? document).querySelectorAll("button"));
+      const described = buttons.map((b) =>
+        [b.className, b.getAttribute("data-color"), b.getAttribute("title"), b.getAttribute("aria-label"), (b.textContent ?? "").trim()].join(" | "),
+      );
+      const target = buttons.find((b) => {
+        const color = (b.getAttribute("data-color") ?? "").toLowerCase();
+        const label = `${b.className} ${b.getAttribute("title") ?? ""} ${b.getAttribute("aria-label") ?? ""} ${b.textContent ?? ""}`;
+        if (want === "white") return /^#?(fff|ffffff)$/.test(color);
+        return (
+          (b.hasAttribute("data-color") && ["", "transparent", "none", "#00000000"].includes(color)) ||
+          /no-?color|transparent|none|reset|clear|default/i.test(b.className) ||
+          /없음|투명|제거|초기화|지우기|색\s*없/.test(label)
+        );
+      });
+      if (target) target.setAttribute(mark, "1");
+      return { found: Boolean(target), described };
+    },
+    { yellowSelector, want, mark: PALETTE_MARK },
+  );
+}
+
+function logPalette(lines: string[]) {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.appendFileSync(path.join(DATA_DIR, "editor-debug.log"), `[${new Date().toISOString()}] 하이라이트 팔레트 버튼:\n${lines.map((l) => `  ${l}`).join("\n")}\n`);
+  } catch { /* 디버그 로그 실패는 무시 */ }
+}
+
+async function highlightOn(frame: Frame, state: EditorState) {
+  await openHighlightPalette(frame);
+  if (!state.paletteLogged) {
+    state.paletteLogged = true;
+    const info = await markPaletteButton(frame, "noColor", sel.highlight.swatch(sel.highlight.yellow)).catch(() => null);
+    if (info) logPalette(info.described);
+  }
   await frame.locator(sel.highlight.swatch(sel.highlight.yellow)).first().click();
   await wait(frame.page(), 120);
+}
+
+async function highlightOff(frame: Frame, state: EditorState) {
+  await openHighlightPalette(frame);
+  const yellow = sel.highlight.swatch(sel.highlight.yellow);
+  let mode = state.highlightOff;
+  let info = mode === "noColor" ? await markPaletteButton(frame, "noColor", yellow).catch(() => null) : null;
+  if (mode === "noColor" && !info?.found) mode = state.highlightOff = "white";
+  if (mode === "white") info = await markPaletteButton(frame, "white", yellow).catch(() => null);
+  if (info?.found) {
+    await frame.locator(`[${PALETTE_MARK}]`).first().click();
+  } else {
+    // 끌 방법이 없다 — 팔레트만 닫고 이후 하이라이트는 생략
+    state.highlightOff = "disabled";
+    await frame.page().keyboard.press("Escape");
+  }
+  await wait(frame.page(), 120);
+  state.verifyHighlightOff = true;
+}
+
+/** 방금 친 평문(본문 마지막 문단의 마지막 글자 조각)의 배경색 */
+export async function lastTypedBackground(frame: Frame): Promise<string | null> {
+  return frame
+    .evaluate((paragraphSelector) => {
+      const paras = document.querySelectorAll(paragraphSelector);
+      const p = paras[paras.length - 1];
+      if (!p) return null;
+      const leaves = Array.from(p.querySelectorAll("span")).filter((x) => (x.textContent ?? "").trim() && !x.querySelector("span"));
+      let el: Element | null = leaves[leaves.length - 1] ?? null;
+      while (el && el !== p.parentElement) {
+        const bg = getComputedStyle(el).backgroundColor;
+        if (bg && bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent") return bg;
+        el = el.parentElement;
+      }
+      return "";
+    }, sel.bodyParagraph)
+    .catch(() => null);
+}
+
+/** 하이라이트를 끈 뒤 친 평문이 아직 노란색이면 다음 방법으로 단계를 내린다 */
+async function verifyHighlightOff(frame: Frame, state: EditorState) {
+  if (!state.verifyHighlightOff) return;
+  state.verifyHighlightOff = false;
+  const bg = await lastTypedBackground(frame);
+  if (bg !== YELLOW_RGB) return;
+  if (state.highlightOff === "noColor") {
+    state.highlightOff = "white";
+    await highlightOff(frame, state); // 흰색으로 다시 끄기(이후 글자부터 적용)
+  } else {
+    state.highlightOff = "disabled";
+    state.warnings.push("에디터에서 노란 하이라이트를 끄지 못했습니다. 일부 문장이 노랗게 칠해졌을 수 있으니 임시저장 글을 확인해주세요. (data/editor-debug.log 참고)");
+  }
 }
 
 async function applyMarks(frame: Frame, state: EditorState, desired: Set<Mark>) {
   if (state.marks.bold !== desired.has("bold")) { await toggleBold(frame); state.marks.bold = !state.marks.bold; }
   if (state.marks.underline !== desired.has("underline")) { await toggleUnderline(frame); state.marks.underline = !state.marks.underline; }
-  if (state.marks.highlight !== desired.has("highlight")) { await toggleHighlight(frame); state.marks.highlight = !state.marks.highlight; }
+  const wantHl = desired.has("highlight") && state.highlightOff !== "disabled";
+  if (state.marks.highlight !== wantHl) {
+    if (wantHl) await highlightOn(frame, state);
+    else await highlightOff(frame, state);
+    state.marks.highlight = wantHl;
+  }
 }
 
 const NO_MARKS = new Set<Mark>();
@@ -140,11 +265,12 @@ async function setAlignmentCenterOnce(frame: Frame, state: EditorState) {
 
 // ---------------------------------------------------------------- 텍스트
 
-async function typeRuns(frame: Frame, state: EditorState, runs: { text: string; marks: Mark[] }[]) {
+async function typeRuns(frame: Frame, state: EditorState, runs: { text: string; marks: Mark[] }[], opts: { verify?: boolean } = {}) {
   const page = frame.page();
   for (const run of runs) {
     await applyMarks(frame, state, new Set(run.marks));
     await page.keyboard.type(run.text, { delay: 8 });
+    if (!state.marks.highlight && opts.verify) await verifyHighlightOff(frame, state);
     if (state.fresh) {
       state.fresh = false;
       await setAlignmentCenterOnce(frame, state);
@@ -153,16 +279,22 @@ async function typeRuns(frame: Frame, state: EditorState, runs: { text: string; 
   await applyMarks(frame, state, NO_MARKS);
 }
 
-/** 문단 하나 = 8~15자 줄 여러 개(가운데 정렬) + 빈 줄 */
+/**
+ * 문단 하나 = 8~15자 줄 여러 개(가운데 정렬) + 빈 줄.
+ * 정보 라벨("**주차**" 같은 굵은 짧은 줄)은 바로 아래 설명과 붙도록 빈 줄을 넣지 않는다.
+ * verify: 본문 일반 문단에서만 하이라이트 해제를 DOM으로 확인한다(표·인용구 안은 위치가 달라 제외).
+ */
 async function typeParagraph(frame: Frame, state: EditorState, text: string) {
   const page = frame.page();
   for (const line of wrapIntoRunLines(text)) {
-    await typeRuns(frame, state, line);
+    await typeRuns(frame, state, line, { verify: true });
     await page.keyboard.press("Enter");
     await wait(page, 60);
   }
-  await page.keyboard.press("Enter");
-  await wait(page, 60);
+  if (!isLabelParagraph(text)) {
+    await page.keyboard.press("Enter");
+    await wait(page, 60);
+  }
 }
 
 // ---------------------------------------------------------------- 컴포넌트
@@ -449,7 +581,10 @@ export async function publishToNaver(input: PublishInput): Promise<PublishResult
     await frame.locator(sel.titleArea).first().click();
     await page.keyboard.type(input.title, { delay: 10 });
 
-    const state: EditorState = { fresh: true, alignmentSet: false, marks: { bold: false, underline: false, highlight: false } };
+    const state: EditorState = {
+      fresh: true, alignmentSet: false, marks: { bold: false, underline: false, highlight: false },
+      highlightOff: "noColor", verifyHighlightOff: false, paletteLogged: false, warnings: [],
+    };
     await fillBody(frame, input, state);
 
     if (input.places.length) await insertPlaces(frame, input.places, onProgress);
@@ -464,7 +599,7 @@ export async function publishToNaver(input: PublishInput): Promise<PublishResult
       url = await submitPublish(frame, input.tags, input.visibility ?? "public", blogId);
     }
     await saveStorageState(context, sessionStatePath(blogId)).catch(() => {});
-    return { success: true, url, error: null };
+    return { success: true, url, error: null, warnings: state.warnings };
   } catch (e) {
     return { success: false, url: null, error: (e as Error).message };
   } finally {

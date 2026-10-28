@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, type ReactNode } from "react";
-import { plainTextToBlocks, type ContentBlock } from "@/lib/textToHtml";
+import { isLabelParagraph, plainTextToBlocks, type ContentBlock } from "@/lib/textToHtml";
 import { parseMarkedRuns, wrapIntoRunLines, type Run } from "@/lib/centeredLineWrap";
 import { splitIntoSections, findSectionCaption, removeFirstMatchingParagraph } from "@/lib/sectionAssignment";
 import { planImages } from "@/lib/imagePlan";
@@ -20,8 +20,9 @@ function RunSpan({ run }: { run: Run }) {
 }
 
 function Paragraph({ text }: { text: string }) {
+  // 정보 라벨("**주차**")은 바로 아래 설명과 붙여 보여준다(발행 때도 빈 줄 없이 이어 침)
   return (
-    <p className="my-4 text-center leading-7">
+    <p className={`text-center leading-7 ${isLabelParagraph(text) ? "mt-6 -mb-3" : "my-4"}`}>
       {wrapIntoRunLines(text).map((line, i) => (
         <span key={i} className="block">
           {line.map((r, j) => <RunSpan key={j} run={r} />)}
