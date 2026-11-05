@@ -6,7 +6,8 @@ const nextConfig: NextConfig = {
   // 버튼이 눌리지 않는 것처럼 보인다(React가 마운트를 못 끝냄).
   // Tailscale IP는 100.64.0.0/10 대역이라 와일드카드로 넓게 열어 둔다.
   // 본인 Tailscale IP를 알면 "100.x.y.z" 하나로 좁혀도 된다.
-  allowedDevOrigins: ["192.168.*.*", "10.*.*.*", "100.*.*.*"],
+  // "**.ts.net": 폰에서 Tailscale 기기 이름(○○.tail1234.ts.net)으로 열 때. "*.ts.net"은 한 단계만 맞아서 안 된다.
+  allowedDevOrigins: ["192.168.*.*", "10.*.*.*", "100.*.*.*", "**.ts.net"],
   // 네이티브/서브프로세스 패키지는 번들하지 않는다.
   serverExternalPackages: ["sharp", "playwright", "@anthropic-ai/claude-agent-sdk"],
 };
