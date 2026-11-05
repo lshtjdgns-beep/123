@@ -8,6 +8,7 @@ export type ContentBlock =
   | { type: "heading"; text: string }
   | { type: "table"; rows: string[][] }
   | { type: "toc"; items: string[] }
+  /** 정보 박스(모서리 인용구): 주소·영업시간 안내 전용, 글 전체에 최대 1개. 이름은 하위호환 때문에 유지 */
   | { type: "photoQuote"; text: string };
 
 // ---------- plain text (편집 탭 / 모델 출력 형식) ----------
@@ -16,6 +17,9 @@ const TABLE_OPEN = "[[TABLE]]";
 const TABLE_CLOSE = "[[/TABLE]]";
 const TOC_OPEN = "[[목차]]";
 const TOC_CLOSE = "[[/목차]]";
+const INFO_OPEN = "[[정보]]";
+const INFO_CLOSE = "[[/정보]]";
+// 예전 형식(사진 속 글자를 그대로 옮기던 박스) — 읽기만 지원
 const PHOTO_OPEN = "[[사진텍스트]]";
 const PHOTO_CLOSE = "[[/사진텍스트]]";
 const HEADING_RE = /^\[\[H\]\]([\s\S]*?)\[\[\/H\]\]$/;
@@ -62,8 +66,8 @@ export function plainTextToBlocks(text: string): ContentBlock[] {
       if (items.length) blocks.push({ type: "toc", items });
       continue;
     }
-    if (line === PHOTO_OPEN) {
-      const body = collectUntil(PHOTO_CLOSE).map((l) => l.trim()).filter(Boolean);
+    if (line === INFO_OPEN || line === PHOTO_OPEN) {
+      const body = collectUntil(line === INFO_OPEN ? INFO_CLOSE : PHOTO_CLOSE).map((l) => l.trim()).filter(Boolean);
       if (body.length) blocks.push({ type: "photoQuote", text: body.join("\n") });
       continue;
     }
@@ -88,7 +92,7 @@ export function blocksToPlainText(blocks: ContentBlock[]): string {
       case "heading": out.push("", `[[H]]${b.text}[[/H]]`); break;
       case "table": out.push(TABLE_OPEN, ...b.rows.map((r) => r.join(" | ")), TABLE_CLOSE); break;
       case "toc": out.push(TOC_OPEN, ...b.items, TOC_CLOSE); break;
-      case "photoQuote": out.push(PHOTO_OPEN, ...b.text.split("\n"), PHOTO_CLOSE); break;
+      case "photoQuote": out.push(INFO_OPEN, ...b.text.split("\n"), INFO_CLOSE); break;
     }
   }
   return out.join("\n").replace(/^\n+/, "");

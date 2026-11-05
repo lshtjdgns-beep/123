@@ -48,7 +48,7 @@ export function parseDraftOutput(text: string, photoCount = 0): ParsedDraft {
     primaryKeyword: tag(text, "primary_keyword") ?? "",
     title,
     bodyText,
-    blocks: splitParagraphsBySentence(plainTextToBlocks(bodyText)),
+    blocks: limitInfoBox(splitParagraphsBySentence(plainTextToBlocks(bodyText))),
     tags: split(tag(text, "tags")).map(normalizeTag).filter(Boolean),
     places: split(tag(text, "places")),
     photoSections,
@@ -96,8 +96,8 @@ const FACT_PATTERNS = [
 const normFact = (s: string) => s.replace(/[\s,]/g, "");
 
 /**
- * 프롬프트만 믿지 말고 기계적으로 잡는다. 본문(목차/사진텍스트 블록 제외 — 사진에서
- * 옮겨 적은 텍스트는 근거 자료지 검사 대상이 아님)에서 가격/시각/출구번호 패턴에
+ * 프롬프트만 믿지 말고 기계적으로 잡는다. 본문·표·정보 박스(목차 제외 — 소제목의 반복일 뿐)에서
+ * 가격/시각/출구번호 패턴에
  * 매칭되는 토큰이 factCorpus에 없으면 "근거 없는 정보".
  */
 export function findUnsupportedFacts(blocks: ContentBlock[], factCorpus: string): string[] {
@@ -106,6 +106,8 @@ export function findUnsupportedFacts(blocks: ContentBlock[], factCorpus: string)
   for (const b of blocks) {
     if (b.type === "paragraph" || b.type === "heading") texts.push(stripMarkers(b.text));
     else if (b.type === "table") texts.push(...b.rows.flat().map(stripMarkers));
+    // 정보 박스는 이제 모델이 쓰는 글이라(예전엔 사진 글자를 그대로 옮김) 검사 대상
+    else if (b.type === "photoQuote") texts.push(...b.text.split("\n").map(stripMarkers));
   }
   const found = new Set<string>();
   for (const t of texts) {
@@ -310,6 +312,31 @@ export function normalizeTables(blocks: ContentBlock[]): ContentBlock[] {
     });
     while (rows.length < 3) rows.push(["", "", ""]);
     return { type: "table", rows };
+  });
+}
+
+/**
+ * ㄱㄴ 모양 인용구(정보 박스)를 남발하면 글이 광고처럼 보여 신뢰가 떨어진다(사용자 피드백).
+ * → 글 전체에 1개만, 그 안에는 주소·영업시간 관련 줄만 남긴다. 남는 줄이 없으면 박스를 뺀다.
+ */
+const INFO_LINE = /(주소|위치|영업|운영|시간|휴무|브레이크|라스트\s*오더|정기)/;
+/** "주소: …", "영업시간: …"처럼 항목 이름으로 시작하는 줄 — 진짜 정보 박스를 고르는 점수 */
+const INFO_LABELED = /^(주소|위치|영업\s*시간|운영\s*시간|휴무일?|정기\s*휴무|브레이크\s*타임|라스트\s*오더)\s*[:：]/;
+export function limitInfoBox(blocks: ContentBlock[]): ContentBlock[] {
+  // 박스 후보마다 남길 줄과 점수를 계산하고, 점수가 가장 높은(같으면 먼저 나온) 박스 하나만 남긴다
+  let best = -1;
+  let bestScore = 0;
+  let bestText = "";
+  blocks.forEach((b, i) => {
+    if (b.type !== "photoQuote") return;
+    const lines = b.text.split("\n").map((l) => l.trim()).filter((l) => l && INFO_LINE.test(stripMarkers(l)));
+    if (!lines.length) return;
+    const score = lines.filter((l) => INFO_LABELED.test(stripMarkers(l))).length * 10 + lines.length;
+    if (score > bestScore) { best = i; bestScore = score; bestText = lines.join("\n"); }
+  });
+  return blocks.flatMap((b, i): ContentBlock[] => {
+    if (b.type !== "photoQuote") return [b];
+    return i === best ? [{ type: "photoQuote", text: bestText }] : [];
   });
 }
 

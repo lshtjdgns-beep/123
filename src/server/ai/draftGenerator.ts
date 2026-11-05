@@ -88,27 +88,6 @@ ${input.styleSummary ? `[B) 말투 분석]\n${input.styleSummary}` : "[B) 말투
   return { review, issues };
 }
 
-/** 사진 속 텍스트(메뉴판 등)를 그 사진이 배정된 소제목 바로 아래에 사진텍스트 박스로 넣는다 */
-function insertPhotoQuotes(blocks: ContentBlock[], photos: (PhotoAnalysis | null)[], photoSections: number[]): ContentBlock[] {
-  const bySection = new Map<number, string[]>();
-  photos.forEach((p, i) => {
-    const s = photoSections[i] ?? -1;
-    if (!p?.extractedText?.length || s < 0) return;
-    bySection.set(s, [...(bySection.get(s) ?? []), p.extractedText.join("\n")]);
-  });
-  if (!bySection.size) return blocks;
-  const out: ContentBlock[] = [];
-  let h = -1;
-  for (const b of blocks) {
-    out.push(b);
-    if (b.type === "heading") {
-      h++;
-      for (const text of bySection.get(h) ?? []) out.push({ type: "photoQuote", text });
-    }
-  }
-  return out;
-}
-
 export type GenerateDraftInput = {
   keyword: string;
   businessName: string | null;
@@ -193,7 +172,6 @@ export async function generateDraft(input: GenerateDraftInput): Promise<Generate
   // ---- safety net (모델이 규칙을 안 지켜도 최종 방어) ----
   let blocks = capEmphasisPerSection(parsed.blocks);
   blocks = normalizeTables(blocks);
-  blocks = insertPhotoQuotes(blocks, input.photos, parsed.photoSections);
   blocks = insertTableOfContents(blocks);
   const tags = finalizeTags(parsed.tags, { title: parsed.title, keyword, businessName });
   const places = filterPlaces(parsed.places, businessName);

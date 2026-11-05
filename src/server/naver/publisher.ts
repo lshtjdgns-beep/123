@@ -377,6 +377,24 @@ async function typeParagraph(frame: Frame, state: EditorState, text: string) {
   }
 }
 
+/**
+ * 목차: 인용구 박스를 남발하면 신뢰가 떨어진다(사용자 피드백) — 굵은 "목차" 라벨 + 번호 목록을 일반 글로.
+ * 항목 사이에는 빈 줄을 넣지 않고, 목록이 끝나면 빈 줄 하나.
+ */
+async function typeTocPlain(frame: Frame, state: EditorState, items: string[]) {
+  const page = frame.page();
+  await typeParagraph(frame, state, "**목차**");
+  for (const item of items) {
+    for (const line of wrapIntoRunLines(item)) {
+      await typeRuns(frame, state, line, { verify: true });
+      await page.keyboard.press("Enter");
+      await wait(page, 60);
+    }
+  }
+  await page.keyboard.press("Enter");
+  await wait(page, 60);
+}
+
 // ---------------------------------------------------------------- 컴포넌트
 
 /**
@@ -407,7 +425,7 @@ async function typeHeading(frame: Frame, state: EditorState, text: string) {
   await clickBelowLastComponent(frame, sel.quotation.component);
 }
 
-/** 목차/사진텍스트: 모서리 인용구, 줄마다 한 줄 */
+/** 정보 박스(주소·영업시간): 모서리 인용구, 줄마다 한 줄. 글 전체에 최대 1개(limitInfoBox) */
 async function typeBoxLines(frame: Frame, state: EditorState, lines: string[]) {
   const page = frame.page();
   await applyMarks(frame, state, NO_MARKS);
@@ -594,7 +612,7 @@ async function typeBlock(frame: Frame, state: EditorState, b: ContentBlock) {
     case "paragraph": return typeParagraph(frame, state, b.text);
     case "heading": return typeHeading(frame, state, b.text);
     case "table": return typeTable(frame, state, b.rows);
-    case "toc": return typeBoxLines(frame, state, b.items);
+    case "toc": return typeTocPlain(frame, state, b.items);
     case "photoQuote": return typeBoxLines(frame, state, b.text.split("\n"));
   }
 }

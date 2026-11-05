@@ -56,7 +56,13 @@ function Block({ b }: { b: ContentBlock }) {
     case "heading":
       return <h3 className="mx-auto mt-10 mb-4 max-w-md border-b-2 border-fg pb-2 text-center text-lg font-bold">{b.text}</h3>;
     case "toc":
-      return <Box lines={b.items} />;
+      // 목차는 박스 없이 굵은 "목차" + 번호 목록(발행과 동일)
+      return (
+        <div className="my-4 text-center leading-7">
+          <strong className="block">목차</strong>
+          {b.items.map((it, i) => <span key={i} className="block">{it}</span>)}
+        </div>
+      );
     case "photoQuote":
       return <Box lines={b.text.split("\n")} />;
     case "table":
