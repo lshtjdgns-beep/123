@@ -48,7 +48,7 @@ export function parseDraftOutput(text: string, photoCount = 0): ParsedDraft {
     primaryKeyword: tag(text, "primary_keyword") ?? "",
     title,
     bodyText,
-    blocks: limitInfoBox(splitParagraphsBySentence(plainTextToBlocks(bodyText))),
+    blocks: moveInfoBoxToTop(limitInfoBox(splitParagraphsBySentence(plainTextToBlocks(bodyText)))),
     tags: split(tag(text, "tags")).map(normalizeTag).filter(Boolean),
     places: split(tag(text, "places")),
     photoSections,
@@ -338,6 +338,12 @@ export function limitInfoBox(blocks: ContentBlock[]): ContentBlock[] {
     if (b.type !== "photoQuote") return [b];
     return i === best ? [{ type: "photoQuote", text: bestText }] : [];
   });
+}
+
+/** 정보 박스(주소·영업시간)는 글 맨 위, 도입부 문장보다 먼저 — 장소 지도 바로 아래에 오도록(사용자 요청) */
+export function moveInfoBoxToTop(blocks: ContentBlock[]): ContentBlock[] {
+  const box = blocks.find((b) => b.type === "photoQuote");
+  return box ? [box, ...blocks.filter((b) => b !== box)] : blocks;
 }
 
 /** 교통 관련 지명 제외: 역/터미널/정류장으로 끝나면 상호명이 아닌 한 제거 */

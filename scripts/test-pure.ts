@@ -310,6 +310,21 @@ test("정보 라벨(**주차**)은 강조 횟수·백스톱·사진 캡션에서
   assert.equal(findSectionCaption(splitIntoSections(blocks)[1]), "**전용 주차장이 없어서** 대중교통을 추천해요.");
 });
 
+test("정보 박스는 글 맨 위(도입부보다 먼저)로 옮겨진다", () => {
+  const p = parseDraftOutput(`<title>t</title><body>
+첫 도입 문장이에요.
+[[H]]소제목[[/H]]
+본문이에요.
+[[정보]]
+주소: 서울 마포구
+영업시간: 11:00 - 21:00
+[[/정보]]
+</body>`);
+  assert.equal(p.blocks[0].type, "photoQuote");
+  assert.equal(p.blocks[1].type, "paragraph");
+  assert.equal(p.blocks.filter((b) => b.type === "photoQuote").length, 1);
+});
+
 // ----------------------------------------------------------------
 console.log(`\n${passed}개 통과, ${failures.length}개 실패`);
 if (failures.length) {

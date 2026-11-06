@@ -82,7 +82,7 @@ function Block({ b }: { b: ContentBlock }) {
   }
 }
 
-export default function DraftPreview({ title, bodyText, images, tags }: { title: string; bodyText: string; images: PreviewImage[]; tags: string[] }) {
+export default function DraftPreview({ title, bodyText, images, tags, places = [] }: { title: string; bodyText: string; images: PreviewImage[]; tags: string[]; places?: string[] }) {
   const blocks = plainTextToBlocks(bodyText);
   const sections = splitIntoSections(blocks);
   const plan = planImages(images, sections.length - 1);
@@ -91,6 +91,13 @@ export default function DraftPreview({ title, bodyText, images, tags }: { title:
     <article className="mx-auto max-w-2xl rounded-xl border border-line bg-surface px-5 py-8">
       <h1 className="mb-6 border-b border-line pb-4 text-2xl font-bold">{title || "(제목 없음)"}</h1>
       {plan.lead && <Img img={plan.lead} />}
+      {places[0] && (
+        // 실제 발행 땐 네이버 지도 장소 카드가 들어가는 자리(리드 사진 바로 아래)
+        <div className="mx-auto my-4 flex max-w-md items-center gap-3 rounded-lg border border-line px-4 py-3 text-left text-sm">
+          <span aria-hidden>📍</span>
+          <span><b>{places[0]}</b><span className="block text-xs text-muted">네이버 지도 장소 카드</span></span>
+        </div>
+      )}
       {sections[0].blocks.map((b, i) => <Block key={`i${i}`} b={b} />)}
       {sections.slice(1).map((s, si) => {
         const main = plan.sectionMain[si];

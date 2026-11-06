@@ -6,6 +6,7 @@ import { recordPublish } from "../db/repositories/publishedPosts";
 import { getActiveBlogId } from "../db/repositories/settings";
 import { publishToNaver, type PublishMode, type PublishResult, type Visibility } from "../naver/publisher";
 import { htmlToBlocks } from "@/lib/textToHtml";
+import { moveInfoBoxToTop } from "../ai/draftChecks";
 import { sectionCaptions } from "@/lib/sectionAssignment";
 import { planImages } from "@/lib/imagePlan";
 
@@ -32,7 +33,8 @@ export async function publishDraftToNaver(
       recordPublish(draftId, { success: false, error });
       return { success: false, url: null, error };
     }
-    const blocks = htmlToBlocks(draft.bodyHtml);
+    // 예전에 만든 초안도 정보 박스(주소·영업시간)는 글 맨 위로
+    const blocks = moveInfoBoxToTop(htmlToBlocks(draft.bodyHtml));
     const headingCount = blocks.filter((b) => b.type === "heading").length;
     const images = listImagesForDraft(draftId).map((i) => ({ id: i.id, slotIndex: i.slot_index, sourceRef: i.source_ref, path: i.processed_path }));
     const plan = planImages(images, headingCount);

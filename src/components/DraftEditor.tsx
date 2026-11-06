@@ -170,7 +170,7 @@ export default function DraftEditor({ draftId }: { draftId: string }) {
         </div>
       )}
 
-      {tab === "preview" && <DraftPreview title={title} bodyText={bodyText} images={data.images} tags={splitList(tags)} />}
+      {tab === "preview" && <DraftPreview title={title} bodyText={bodyText} images={data.images} tags={splitList(tags)} places={splitList(places)} />}
 
       {tab === "checks" && (
         <div className="card">

@@ -351,7 +351,8 @@ async function typeRuns(frame: Frame, state: EditorState, runs: { text: string; 
     await applyMarks(frame, state, new Set(run.marks));
     await page.keyboard.type(run.text, { delay: 8 });
     if (!state.marks.highlight && opts.verify) await verifyHighlightOff(frame, state);
-    if (state.fresh) {
+    // 정렬은 일반 본문 문단에서만 1회 설정 — 맨 위 정보 박스(인용구)·표 안에서 설정하면 본문에 상속되지 않는다
+    if (state.fresh && opts.verify) {
       state.fresh = false;
       await setAlignmentCenterOnce(frame, state);
     }
@@ -551,17 +552,21 @@ async function insertPlace(frame: Frame, place: string): Promise<boolean> {
   return false;
 }
 
-async function insertPlaces(frame: Frame, places: string[], onProgress?: (m: string) => void) {
+async function insertPlaces(frame: Frame, places: string[], onProgress?: (m: string) => void): Promise<boolean[]> {
+  const results: boolean[] = [];
   for (const p of places) {
     onProgress?.(`장소 "${p}" 첨부 중…`);
     try {
       const ok = await insertPlace(frame, p);
-      if (!ok) console.warn("[publish] 장소 검색 결과 없음:", p);
+      if (!ok) debugLog(`장소 검색 결과 없음: ${p}`);
+      results.push(ok);
     } catch (e) {
-      console.warn("[publish] 장소 첨부 실패:", p, (e as Error).message);
+      debugLog(`장소 첨부 실패: ${p} — ${(e as Error).message.split("\n")[0]}`);
       await closePlacePopup(frame);
+      results.push(false);
     }
   }
+  return results;
 }
 
 // ---------------------------------------------------------------- 저장/발행
@@ -627,6 +632,20 @@ async function fillBody(frame: Frame, input: PublishInput, state: EditorState) {
     await insertSingleImage(frame, input.leadImagePath);
   }
 
+  // 글 맨 위(리드 사진 바로 아래)에 대표 장소 지도 — 도입부가 글만 있으면 가독성이 떨어지고,
+  // 장소 정보가 위에 있어야 바로 위치를 확인할 수 있다(사용자 요청). 나머지 장소는 글 끝에.
+  const topPlace = input.places[0];
+  if (topPlace) {
+    const [ok] = await insertPlaces(frame, [topPlace], onProgress);
+    if (ok) {
+      // 지도 컴포넌트 아래로 나와서 이어 쓴다(이미지와 같은 방식으로 텍스트 커서 확인)
+      await clickBelowLastComponent(frame).catch(() => {});
+      await ensureTextCaret(frame);
+    } else {
+      state.warnings.push(`대표 장소 "${topPlace}"를 네이버 지도에서 찾지 못해 글 위에 지도를 넣지 못했습니다.`);
+    }
+  }
+
   const sections = splitIntoSections(input.blocks);
   for (const b of sections[0].blocks) await typeBlock(frame, state, b);
 
@@ -681,7 +700,7 @@ export async function publishToNaver(input: PublishInput): Promise<PublishResult
     };
     await fillBody(frame, input, state);
 
-    if (input.places.length) await insertPlaces(frame, input.places, onProgress);
+    if (input.places.length > 1) await insertPlaces(frame, input.places.slice(1), onProgress);
 
     let url: string | null;
     if (input.mode === "draft") {
