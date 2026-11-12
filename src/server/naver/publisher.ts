@@ -111,28 +111,49 @@ export async function dismissContinueWritingPopup(frame: Frame) {
   }
 }
 
-/** 제목·본문에 글자나 사진·인용구 같은 컴포넌트가 이미 있으면 "비어 있지 않음" */
-export async function isEditorEmpty(frame: Frame): Promise<boolean> {
+/**
+ * 제목·본문에 글자나 사진·인용구 같은 컴포넌트가 이미 있으면 "비어 있지 않음".
+ * ⚠ 빈 에디터에도 회색 안내 문구("제목", "본문에 #을 이용하여 태그를 사용해보세요!")가
+ * .se-placeholder 요소로 들어 있다 — 이걸 글자로 세면 빈 화면을 "이전 글이 열려 있음"으로
+ * 오판해서 매번 멈췄다(사용자 PC 실측). 안내 문구 요소는 빼고 센다.
+ */
+export async function isEditorEmpty(frame: Frame): Promise<{ empty: boolean; summary: string }> {
   const info = await frame
     .evaluate((s) => {
-      const title = document.querySelector(s.titleArea)?.textContent ?? "";
+      const PH = ".se-placeholder, [class*='placeholder']";
+      const titleEl = document.querySelector(s.titleArea);
+      const titleClone = titleEl ? (titleEl.cloneNode(true) as Element) : null;
+      titleClone?.querySelectorAll(PH).forEach((x) => x.remove());
       const wrap = document.querySelector(s.bodyArea);
-      const components = wrap ? wrap.querySelectorAll(".se-component").length : 0;
-      const nonText = wrap ? wrap.querySelectorAll(".se-component:not(.se-text):not(.se-documentTitle)").length : 0;
-      const bodyText = wrap
-        ? Array.from(wrap.querySelectorAll(".se-component.se-text"), (c) => c.textContent ?? "").join("")
+      const bodyClone = wrap ? (wrap.cloneNode(true) as Element) : null;
+      bodyClone?.querySelectorAll(PH).forEach((x) => x.remove());
+      const bodyText = bodyClone
+        ? Array.from(bodyClone.querySelectorAll(".se-component.se-text"), (c) => c.textContent ?? "").join("")
         : "";
-      return { title: title.replace(/\u200b/g, "").trim(), bodyText: bodyText.replace(/\u200b/g, "").trim(), components, nonText };
+      const nonText = wrap
+        ? Array.from(wrap.querySelectorAll(".se-component:not(.se-text):not(.se-documentTitle)"), (c) => c.className.split(/\s+/).filter((k) => k !== "se-component" && k.startsWith("se-"))[0] ?? "?")
+        : [];
+      return {
+        title: (titleClone?.textContent ?? "").replace(/\u200b/g, "").trim(),
+        bodyText: bodyText.replace(/\u200b/g, "").trim(),
+        nonText,
+      };
     }, { titleArea: sel.titleArea, bodyArea: sel.bodyArea })
     .catch(() => null);
-  if (!info) return true; // 판별 실패 시 막지는 않는다
-  const empty = !info.title && !info.bodyText && info.nonText === 0;
-  if (!empty) debugLog(`에디터가 비어 있지 않음: 제목="${info.title.slice(0, 30)}", 본문 ${info.bodyText.length}자, 컴포넌트 ${info.components}개`);
-  return empty;
+  if (!info) return { empty: true, summary: "" }; // 판별 실패 시 막지는 않는다
+  const empty = !info.title && !info.bodyText && info.nonText.length === 0;
+  const summary = [
+    info.title && `제목 "${info.title.slice(0, 20)}"`,
+    info.bodyText && `본문 "${info.bodyText.slice(0, 20)}…"(${info.bodyText.length}자)`,
+    info.nonText.length && `사진·지도 등 ${info.nonText.length}개(${[...new Set(info.nonText)].join(", ")})`,
+  ].filter(Boolean).join(", ");
+  if (!empty) debugLog(`에디터가 비어 있지 않음: ${summary}`);
+  return { empty, summary };
 }
 
 /** 빈 글쓰기 화면을 연다. 이전 글이 열려 있으면 한 번 새로 고치고, 그래도 안 비면 멈춘다(덮어쓰기 방지). */
 async function openFreshEditor(page: Page, blogId: string): Promise<Frame> {
+  let lastSummary = "";
   for (let attempt = 0; attempt < 2; attempt++) {
     await page.goto(sel.writeUrlTemplate(blogId), { waitUntil: "domcontentloaded", timeout: 45000 });
     await wait(page, 3000);
@@ -140,10 +161,12 @@ async function openFreshEditor(page: Page, blogId: string): Promise<Frame> {
     const frame = await getEditorFrame(page);
     await dismissContinueWritingPopup(frame);
     await dismissHelpPanel(frame);
-    if (await isEditorEmpty(frame)) return frame;
+    const check = await isEditorEmpty(frame);
+    if (check.empty) return frame;
+    lastSummary = check.summary;
   }
   throw new Error(
-    "네이버 글쓰기 화면에 이전에 쓰던 글이 열려 있어서 멈췄습니다(같은 글이 겹쳐 써지는 것을 막기 위해). " +
+    `네이버 글쓰기 화면에 이미 내용이 있어서 멈췄습니다(같은 글이 겹쳐 써지는 것을 막기 위해). 발견한 내용: ${lastSummary}. ` +
       "네이버 블로그 글쓰기 화면에서 그 글을 저장하거나 지운 뒤 다시 시도해주세요.",
   );
 }
